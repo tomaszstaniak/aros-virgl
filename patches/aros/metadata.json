@@ -1,0 +1,15 @@
+{
+  "id": "aros-virgl",
+  "status": "candidate",
+  "base_commit": "c9459cd9be0d2958765a60fd07324bd161632c9b",
+  "source_tree": "72d98d081d93298117a7e0dd06bb28623ea823b3",
+  "target": "x86_64 ABIv1 PC; Clang 23.1.0; Mesa 26.2.5",
+  "patches": {
+    "0001-aros-virgl.patch": "5159a27ede895a6cf66a53cea2c0beebc430f7d3ed590411dd17e766d6614d5a"
+  },
+  "included_upstream_fix": {
+    "url": "https://github.com/aros-development-team/AROS/pull/2028",
+    "commit": "aeecca86f6b1a7e67a9ba904928b66f4a3e726b5"
+  },
+  "scope": "Experimental VirGL and runtime dependencies for the documented host/guest configuration."
+}

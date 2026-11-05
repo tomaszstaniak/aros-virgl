@@ -1,0 +1,15 @@
+{
+  "abi": "v1",
+  "architecture": "x86_64",
+  "source_url": "https://downloads.sourceforge.net/project/aros/nightly2/20261031/Binaries/AROS-20261031-pc-x86_64-boot-iso.zip",
+  "source_archive_sha256": "338bbca23aafc334cdce70c1f8c70768d79957633df8266cc79dfd1f10998076",
+  "source_media_sha256": "d6798512e1df081f2a696dcc99469727ffd51dede4ba36dfa647a934f9f9114a",
+  "source_revision_note": "Official nightly 20261031; an exact source commit is not available.",
+  "runtime": {
+    "exec.library": "51.12 (10/31/26)",
+    "dos.library": "50.84 (10/31/26)",
+    "gfx.hidd": "45.38 (10/31/26)",
+    "posixc.library": "0.40 (10/31/26)"
+  },
+  "install": "Core, Extras and Developer/debugging from that ISO, default SFS-BE system partition and standard native graphics boot. Use your own installed disk copy."
+}

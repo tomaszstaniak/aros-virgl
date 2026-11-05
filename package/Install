@@ -1,0 +1,70 @@
+.key PACKAGE/A
+.bra {
+.ket }
+FailAt 10
+If EXISTS SYS:VirGL-rollback-0.1.0-exp1
+Echo "Backup directory already exists; installation stopped. See README.txt."
+Quit 20
+EndIf
+MakeDir SYS:VirGL-rollback-0.1.0-exp1
+If EXISTS SYS:Libs/stdc.library
+Copy SYS:Libs/stdc.library SYS:VirGL-rollback-0.1.0-exp1/stdc.library CLONE
+Else
+Echo absent >SYS:VirGL-rollback-0.1.0-exp1/stdc.library.absent
+EndIf
+If EXISTS SYS:Libs/stdcio.library
+Copy SYS:Libs/stdcio.library SYS:VirGL-rollback-0.1.0-exp1/stdcio.library CLONE
+Else
+Echo absent >SYS:VirGL-rollback-0.1.0-exp1/stdcio.library.absent
+EndIf
+If EXISTS SYS:Libs/posixc.library
+Copy SYS:Libs/posixc.library SYS:VirGL-rollback-0.1.0-exp1/posixc.library CLONE
+Else
+Echo absent >SYS:VirGL-rollback-0.1.0-exp1/posixc.library.absent
+EndIf
+If EXISTS SYS:Libs/fd.library
+Copy SYS:Libs/fd.library SYS:VirGL-rollback-0.1.0-exp1/fd.library CLONE
+Else
+Echo absent >SYS:VirGL-rollback-0.1.0-exp1/fd.library.absent
+EndIf
+If EXISTS SYS:Libs/gallium.library
+Copy SYS:Libs/gallium.library SYS:VirGL-rollback-0.1.0-exp1/gallium.library CLONE
+Else
+Echo absent >SYS:VirGL-rollback-0.1.0-exp1/gallium.library.absent
+EndIf
+If EXISTS SYS:Libs/mesa3dgl26-2.library
+Copy SYS:Libs/mesa3dgl26-2.library SYS:VirGL-rollback-0.1.0-exp1/mesa3dgl26-2.library CLONE
+Else
+Echo absent >SYS:VirGL-rollback-0.1.0-exp1/mesa3dgl26-2.library.absent
+EndIf
+If EXISTS SYS:Libs/softpipe.hidd
+Copy SYS:Libs/softpipe.hidd SYS:VirGL-rollback-0.1.0-exp1/softpipe.hidd CLONE
+Else
+Echo absent >SYS:VirGL-rollback-0.1.0-exp1/softpipe.hidd.absent
+EndIf
+If EXISTS SYS:Libs/virgl.hidd
+Copy SYS:Libs/virgl.hidd SYS:VirGL-rollback-0.1.0-exp1/virgl.hidd CLONE
+Else
+Echo absent >SYS:VirGL-rollback-0.1.0-exp1/virgl.hidd.absent
+EndIf
+If EXISTS ENV:SYS/Gallium.default
+Copy ENV:SYS/Gallium.default SYS:VirGL-rollback-0.1.0-exp1/ENV.Gallium.default CLONE
+Else
+Echo absent >SYS:VirGL-rollback-0.1.0-exp1/ENV.Gallium.default.absent
+EndIf
+If EXISTS ENVARC:SYS/Gallium.default
+Copy ENVARC:SYS/Gallium.default SYS:VirGL-rollback-0.1.0-exp1/ENVARC.Gallium.default CLONE
+Else
+Echo absent >SYS:VirGL-rollback-0.1.0-exp1/ENVARC.Gallium.default.absent
+EndIf
+Echo complete >SYS:VirGL-rollback-0.1.0-exp1/BACKUP_COMPLETE
+Copy {PACKAGE}/Libs/stdc.library SYS:Libs/stdc.library CLONE
+Copy {PACKAGE}/Libs/stdcio.library SYS:Libs/stdcio.library CLONE
+Copy {PACKAGE}/Libs/posixc.library SYS:Libs/posixc.library CLONE
+Copy {PACKAGE}/Libs/fd.library SYS:Libs/fd.library CLONE
+Copy {PACKAGE}/Libs/gallium.library SYS:Libs/gallium.library CLONE
+Copy {PACKAGE}/Libs/mesa3dgl26-2.library SYS:Libs/mesa3dgl26-2.library CLONE
+Copy {PACKAGE}/Libs/softpipe.hidd SYS:Libs/softpipe.hidd CLONE
+Copy {PACKAGE}/Libs/virgl.hidd SYS:Libs/virgl.hidd CLONE
+Echo installed >SYS:VirGL-rollback-0.1.0-exp1/INSTALLED
+Echo "Installation complete. Cold reboot before using GL. See README.txt."

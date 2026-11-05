@@ -1,0 +1,13 @@
+{
+  "aros": {
+    "url": "https://github.com/aros-development-team/AROS.git",
+    "base_commit": "c9459cd9be0d2958765a60fd07324bd161632c9b",
+    "result_tree": "72d98d081d93298117a7e0dd06bb28623ea823b3",
+    "series": "patches/aros/series"
+  },
+  "qemu": {
+    "url": "https://gitlab.com/milesbuckton/qemu.git",
+    "base_commit": "b33a6bab8b945745810b07c98826aba1ce018873",
+    "series": "host/patches/series"
+  }
+}

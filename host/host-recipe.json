@@ -1,0 +1,23 @@
+{
+  "command": [
+    "@HOST@/source/configure",
+    "--target-list=x86_64-softmmu",
+    "--python=@HOST@/venv/bin/python",
+    "--enable-cocoa",
+    "--enable-opengl",
+    "--enable-virglrenderer",
+    "--enable-slirp",
+    "--disable-docs",
+    "--disable-guest-agent",
+    "--disable-tests",
+    "--disable-spice",
+    "--disable-download",
+    "--prefix=@HOST@/install"
+  ],
+  "environment": {
+    "PKG_CONFIG_PATH": "@HOST@/prefix/lib/pkgconfig:/opt/homebrew/lib/pkgconfig:/opt/homebrew/share/pkgconfig",
+    "DYLD_LIBRARY_PATH": "@HOST@/prefix/lib",
+    "CFLAGS": "-I@HOST@/prefix/include",
+    "LDFLAGS": "-L@HOST@/prefix/lib -Wl,-rpath,@HOST@/prefix/lib"
+  }
+}

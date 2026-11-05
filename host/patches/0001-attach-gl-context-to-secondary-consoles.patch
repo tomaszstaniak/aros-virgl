@@ -1,0 +1,23 @@
+diff --git a/ui/cocoa.m b/ui/cocoa.m
+index 26a41c7..b9fa696 100644
+--- a/ui/cocoa.m
++++ b/ui/cocoa.m
+@@ -2288,8 +2288,16 @@ static void cocoa_display_init(DisplayState *ds, DisplayOptions *opts)
+ #ifdef CONFIG_OPENGL
+     if (cocoa_gl_enabled) {
+         cocoa_gl_ctx.ops = &cocoa_gl_ctx_ops;
+-        qemu_console_set_display_gl_ctx(qemu_console_lookup_default(),
+-                                        &cocoa_gl_ctx);
++        /* A secondary virtio-gpu also needs a context before its first command. */
++        for (unsigned int i = 0; ; i++) {
++            QemuConsole *con = qemu_console_lookup_by_index(i);
++            if (!con) {
++                break;
++            }
++            if (qemu_console_is_graphic(con)) {
++                qemu_console_set_display_gl_ctx(con, &cocoa_gl_ctx);
++            }
++        }
+         COCOA_DEBUG("qemu_cocoa: GL scanout enabled via ANGLE EGL (deferred init)\n");
+     }
+ #endif

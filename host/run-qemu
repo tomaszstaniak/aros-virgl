@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+if [ "$#" -lt 2 ]; then
+    echo 'Usage: sh run-qemu HOST_OUTPUT QEMU_ARGUMENTS...' >&2
+    exit 2
+fi
+virgl_host_dir=$(cd "$1" && pwd)
+shift
+export DYLD_LIBRARY_PATH="$virgl_host_dir/prefix/lib"
+exec "$virgl_host_dir/build/qemu-system-x86_64" -L "$virgl_host_dir/source/pc-bios" "$@"

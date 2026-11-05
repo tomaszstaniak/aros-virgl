@@ -1,0 +1,44 @@
+{
+  "sources": {
+    "qemu_url": "https://gitlab.com/milesbuckton/qemu.git",
+    "qemu_revision": "b33a6bab8b945745810b07c98826aba1ce018873",
+    "recipes_url": "https://github.com/milesbuckton/homebrew-qemu-virgl",
+    "recipes_revision": "c1e1b6a976e9ea11d324c8ca7a1960f007467246",
+    "keycodemapdb_revision": "f5772a62ec52591ff6870b7e8ef32482371f22c6"
+  },
+  "downloads": [
+    {
+      "url": "https://github.com/milesbuckton/homebrew-qemu-virgl/releases/download/latest/libangle-main.arm64_golden_gate.bottle.tar.gz",
+      "file": "libangle-main.arm64_golden_gate.bottle.tar.gz",
+      "sha256": "288dd4c0aef35757de17246bbe68b9699cf302249f78a82ab7643a1eadbda1fb",
+      "bytes": 1380033
+    },
+    {
+      "url": "https://github.com/milesbuckton/homebrew-qemu-virgl/releases/download/latest/libepoxy-angle-master.arm64_golden_gate.bottle.tar.gz",
+      "file": "libepoxy-angle-master.arm64_golden_gate.bottle.tar.gz",
+      "sha256": "dd9e5b46a386cc91df12f0930ce9bbe28a157ed638ad4d9c6049c688236e92a2",
+      "bytes": 426841
+    },
+    {
+      "url": "https://github.com/milesbuckton/homebrew-qemu-virgl/releases/download/latest/virglrenderer-main.arm64_golden_gate.bottle.tar.gz",
+      "file": "virglrenderer-main.arm64_golden_gate.bottle.tar.gz",
+      "sha256": "86a4b645f5ecd80528b0527457158527c75f9229fa74fd19bf2ba47d5e9ae666",
+      "bytes": 1044319
+    }
+  ],
+  "patches": [
+    {
+      "file": "patches/0001-attach-gl-context-to-secondary-consoles.patch",
+      "sha256": "10cff5f39153971726357fbb392d72698f085be2fd47c820a4b5aa094b93c5fe"
+    },
+    {
+      "file": "patches/0001-backport-async-virtio-gpu-reset.patch",
+      "sha256": "eae4e7f65ef2834b8f40af030520cb23a29e3bf3cc30b8604c6efd0197f187a5"
+    }
+  ],
+  "dependency_source_revisions": {
+    "libepoxy-angle": "d1f952c4565c389d82fd1657153e84e050f35b27",
+    "libangle": "0c9e4e1e8d83748c81066ceb09c4c7b4904ba28a",
+    "virglrenderer": "a62bb4fdb1549d48c2aeb7ef7c45905961733cce"
+  }
+}

@@ -1,0 +1,8 @@
+FailAt 10
+If NOT EXISTS SYS:VirGL-rollback-0.1.0-exp1/INSTALLED
+Echo "Install the package first."
+Quit 20
+EndIf
+SetEnv SYS/Gallium.default virgl
+Copy ENV:SYS/Gallium.default ENVARC:SYS/Gallium.default CLONE
+Echo "VirGL selected. Cold reboot before using GL."

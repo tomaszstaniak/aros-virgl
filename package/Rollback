@@ -1,0 +1,77 @@
+FailAt 10
+If NOT EXISTS SYS:VirGL-rollback-0.1.0-exp1/BACKUP_COMPLETE
+Echo "No complete backup; restore from your disk snapshot."
+Quit 20
+EndIf
+If EXISTS SYS:VirGL-rollback-0.1.0-exp1/stdc.library.absent
+If EXISTS SYS:Libs/stdc.library
+Delete SYS:Libs/stdc.library
+EndIf
+Else
+Copy SYS:VirGL-rollback-0.1.0-exp1/stdc.library SYS:Libs/stdc.library CLONE
+EndIf
+If EXISTS SYS:VirGL-rollback-0.1.0-exp1/stdcio.library.absent
+If EXISTS SYS:Libs/stdcio.library
+Delete SYS:Libs/stdcio.library
+EndIf
+Else
+Copy SYS:VirGL-rollback-0.1.0-exp1/stdcio.library SYS:Libs/stdcio.library CLONE
+EndIf
+If EXISTS SYS:VirGL-rollback-0.1.0-exp1/posixc.library.absent
+If EXISTS SYS:Libs/posixc.library
+Delete SYS:Libs/posixc.library
+EndIf
+Else
+Copy SYS:VirGL-rollback-0.1.0-exp1/posixc.library SYS:Libs/posixc.library CLONE
+EndIf
+If EXISTS SYS:VirGL-rollback-0.1.0-exp1/fd.library.absent
+If EXISTS SYS:Libs/fd.library
+Delete SYS:Libs/fd.library
+EndIf
+Else
+Copy SYS:VirGL-rollback-0.1.0-exp1/fd.library SYS:Libs/fd.library CLONE
+EndIf
+If EXISTS SYS:VirGL-rollback-0.1.0-exp1/gallium.library.absent
+If EXISTS SYS:Libs/gallium.library
+Delete SYS:Libs/gallium.library
+EndIf
+Else
+Copy SYS:VirGL-rollback-0.1.0-exp1/gallium.library SYS:Libs/gallium.library CLONE
+EndIf
+If EXISTS SYS:VirGL-rollback-0.1.0-exp1/mesa3dgl26-2.library.absent
+If EXISTS SYS:Libs/mesa3dgl26-2.library
+Delete SYS:Libs/mesa3dgl26-2.library
+EndIf
+Else
+Copy SYS:VirGL-rollback-0.1.0-exp1/mesa3dgl26-2.library SYS:Libs/mesa3dgl26-2.library CLONE
+EndIf
+If EXISTS SYS:VirGL-rollback-0.1.0-exp1/softpipe.hidd.absent
+If EXISTS SYS:Libs/softpipe.hidd
+Delete SYS:Libs/softpipe.hidd
+EndIf
+Else
+Copy SYS:VirGL-rollback-0.1.0-exp1/softpipe.hidd SYS:Libs/softpipe.hidd CLONE
+EndIf
+If EXISTS SYS:VirGL-rollback-0.1.0-exp1/virgl.hidd.absent
+If EXISTS SYS:Libs/virgl.hidd
+Delete SYS:Libs/virgl.hidd
+EndIf
+Else
+Copy SYS:VirGL-rollback-0.1.0-exp1/virgl.hidd SYS:Libs/virgl.hidd CLONE
+EndIf
+If EXISTS SYS:VirGL-rollback-0.1.0-exp1/ENV.Gallium.default.absent
+If EXISTS ENV:SYS/Gallium.default
+Delete ENV:SYS/Gallium.default
+EndIf
+Else
+Copy SYS:VirGL-rollback-0.1.0-exp1/ENV.Gallium.default ENV:SYS/Gallium.default CLONE
+EndIf
+If EXISTS SYS:VirGL-rollback-0.1.0-exp1/ENVARC.Gallium.default.absent
+If EXISTS ENVARC:SYS/Gallium.default
+Delete ENVARC:SYS/Gallium.default
+EndIf
+Else
+Copy SYS:VirGL-rollback-0.1.0-exp1/ENVARC.Gallium.default ENVARC:SYS/Gallium.default CLONE
+EndIf
+Echo restored >SYS:VirGL-rollback-0.1.0-exp1/ROLLED_BACK
+Echo "Original files and selection restored. Cold reboot now."
