@@ -1,0 +1,21 @@
+Add one line to the menu entry you boot, after the last existing module2 line
+of that entry in boot/grub/grub.cfg (EFI: efi/BOOT/grub/grub.cfg):
+
+    module2 /Devs/Drivers/virtiogfx.hidd
+
+Example (entry of a mainline x86_64 nightly, kept as a second entry so the
+original one stays available):
+
+menuentry "AROS64 with VirtIO-GPU" {
+    multiboot2 /boot/pc/bootstrap.xz ATA=32bit $bootstrap_flags
+    module2 /boot/pc/kernel.xz
+    module2 /boot/pc/aros-bsp.pkg.xz
+    module2 /boot/pc/aros-acpi.pkg.xz
+    module2 /boot/aros-base.pkg.xz
+    module2 /boot/aros-fs.pkg.xz
+    module2 /boot/poseidon.pkg.xz
+    module2 /Devs/Drivers/virtiogfx.hidd
+}
+
+Adding "debug=serial" to the multiboot2 line sends the system log to the
+first serial port (QEMU: -serial file:serial.log).

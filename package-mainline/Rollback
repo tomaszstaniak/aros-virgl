@@ -1,0 +1,51 @@
+FailAt 10
+If NOT EXISTS SYS:VirGL-rollback-0.2.0-test1/BACKUP_COMPLETE
+Echo "No complete backup found; nothing restored."
+Quit 20
+EndIf
+If EXISTS SYS:VirGL-rollback-0.2.0-test1/gallium.library.absent
+If EXISTS SYS:Libs/gallium.library
+Delete SYS:Libs/gallium.library
+EndIf
+Else
+Copy SYS:VirGL-rollback-0.2.0-test1/gallium.library SYS:Libs/gallium.library CLONE
+EndIf
+If EXISTS SYS:VirGL-rollback-0.2.0-test1/gl.library.absent
+If EXISTS SYS:Libs/gl.library
+Delete SYS:Libs/gl.library
+EndIf
+Else
+Copy SYS:VirGL-rollback-0.2.0-test1/gl.library SYS:Libs/gl.library CLONE
+EndIf
+If EXISTS SYS:VirGL-rollback-0.2.0-test1/mesa3dgl26-2.library.absent
+If EXISTS SYS:Libs/mesa3dgl26-2.library
+Delete SYS:Libs/mesa3dgl26-2.library
+EndIf
+Else
+Copy SYS:VirGL-rollback-0.2.0-test1/mesa3dgl26-2.library SYS:Libs/mesa3dgl26-2.library CLONE
+EndIf
+If EXISTS SYS:VirGL-rollback-0.2.0-test1/gallium.hidd.absent
+If EXISTS SYS:Devs/Drivers/gallium.hidd
+Delete SYS:Devs/Drivers/gallium.hidd
+EndIf
+Else
+Copy SYS:VirGL-rollback-0.2.0-test1/gallium.hidd SYS:Devs/Drivers/gallium.hidd CLONE
+EndIf
+If EXISTS SYS:VirGL-rollback-0.2.0-test1/virgl.hidd.absent
+If EXISTS SYS:Devs/Drivers/virgl.hidd
+Delete SYS:Devs/Drivers/virgl.hidd
+EndIf
+Else
+Copy SYS:VirGL-rollback-0.2.0-test1/virgl.hidd SYS:Devs/Drivers/virgl.hidd CLONE
+EndIf
+If EXISTS SYS:VirGL-rollback-0.2.0-test1/virtiogfx.hidd.absent
+If EXISTS SYS:Devs/Drivers/virtiogfx.hidd
+Delete SYS:Devs/Drivers/virtiogfx.hidd
+EndIf
+Else
+Copy SYS:VirGL-rollback-0.2.0-test1/virtiogfx.hidd SYS:Devs/Drivers/virtiogfx.hidd CLONE
+EndIf
+If EXISTS SYS:VirGL-rollback-0.2.0-test1/INSTALLED
+Delete SYS:VirGL-rollback-0.2.0-test1/INSTALLED
+EndIf
+Echo "Original files restored. Remove the virtiogfx.hidd line from grub.cfg, then cold reboot."
