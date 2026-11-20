@@ -1,4 +1,4 @@
-VirGL for AROS x86_64 ABIv11, internal test package 0.2.0-test2
+VirGL for AROS x86_64 ABIv11, internal test package 0.2.0-test3
 ===============================================================
 
 Not a public release. For checking OpenGL through VirGL in an ABIv11 system
@@ -46,9 +46,10 @@ Installation
 ------------
 1. Copy this drawer to the AROS disk, open a Shell and CD into it.
 2. Execute Install
-   The replaced file is first copied to SYS:VirGL-rollback-0.2.0-test2.
-   Installing over 0.2.0-test1 is fine: Install takes over the system
-   files test1 saved, so Rollback still brings back the original ones.
+   The replaced file is first copied to SYS:VirGL-rollback-0.2.0-test3.
+   Installing over 0.2.0-test1 or test2 is fine: Install takes over the
+   system files saved by the earlier package, so Rollback still brings
+   back the original ones.
 3. Shut down and start QEMU with the second adapter.
 
 Checks
@@ -80,17 +81,20 @@ Known limits
 - OpenGL 2.1 is what this Mesa's VirGL driver reports here.
 - Each frame is read back from the host and copied into the window, and
   every command waits for the host. Measured under software CPU emulation
-  for a 256x256 window: about 30 ms per frame (test1: about 100 ms).
+  for a 256x256 window: about 5 ms per frame (test1: about 100 ms).
 - One VirtIO-GPU adapter, and it must be the second card, not the one the
   desktop runs on.
 
 Changes since 0.2.0-test1
 -------------------------
 - Software renderer instead of "no GL context" when the host cannot run
-  VirGL, with the reason in ENV:VirGL-Status.
-- Faster: the driver no longer sleeps a whole timer tick (20 ms) when the
-  host takes longer than a very short wait. Frames and texture loading
-  were about three times faster in our test.
+  VirGL, with the reason in ENV:VirGL-Status (test2).
+- Much faster. Commands are sent without a fence: QEMU answers a fenced
+  command only when it polls fences, every 10 ms, so every command cost
+  about 10 ms. The driver also no longer sleeps a whole timer tick when the
+  host takes longer than a very short wait (test2). In our test (no KVM):
+  about 5 ms per frame instead of 100, and 64 textures load in 0.2 s
+  instead of 9.7 s.
 
 Source
 ------

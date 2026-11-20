@@ -1,0 +1,93 @@
+From bb7a4b5f069706d5833863e18c2f0d900a75f934 Mon Sep 17 00:00:00 2001
+From: tomaszstaniak <68373859+tomaszstaniak@users.noreply.github.com>
+Date: Fri, 20 Nov 2026 23:11:42 +0100
+Subject: [PATCH] virgl.hidd: send commands without fences (QEMU answers fenced
+ commands only on its 10 ms fence poll)
+
+---
+ workbench/hidds/virgl/virgl_transport.c   |  6 +++---
+ workbench/hidds/virgl/virgl_winsys_aros.c | 14 +++++++++-----
+ 2 files changed, 12 insertions(+), 8 deletions(-)
+
+diff --git a/workbench/hidds/virgl/virgl_transport.c b/workbench/hidds/virgl/virgl_transport.c
+index 091b0242..e4ac3ca6 100644
+--- a/workbench/hidds/virgl/virgl_transport.c
++++ b/workbench/hidds/virgl/virgl_transport.c
+@@ -520,7 +520,7 @@ BOOL avgl_cleanup_command(struct avgl_transport *s,const void *input,ULONG bytes
+     if(!s->device)return FALSE;
+     ObtainSemaphore(&s->device->queue);
+     ok=!s->device->failed && raw_command(s->device,input,bytes,GPU_OK_NODATA,
+-        sizeof(struct gpu_header),&received,TRUE);
++        sizeof(struct gpu_header),&received,FALSE);
+     if(ok && ((const struct gpu_header *)input)->type==GPU_RESOURCE_UNREF && s->resources_live)s->resources_live--;
+     ReleaseSemaphore(&s->device->queue);return ok;
+ }
+@@ -604,7 +604,7 @@ BOOL avgl_close(struct avgl_transport *s)
+         (unsigned long)m->references,(unsigned long)d->failed);
+     if(s->context_created && !d->failed){
+         ULONG received;struct gpu_header req={.type=GPU_CTX_DESTROY,.context=s->context};
+-        raw_command(d,&req,sizeof(req),GPU_OK_NODATA,sizeof(req),&received,TRUE);
++        raw_command(d,&req,sizeof(req),GPU_OK_NODATA,sizeof(req),&received,FALSE);
+     }
+     s->context_created=FALSE;
+     ReleaseSemaphore(&d->queue);
+@@ -633,7 +633,7 @@ BOOL avgl_open(struct avgl_transport *s,struct avgl_manager *m)
+     ObtainSemaphore(&d->queue);
+     if(d->failed || d->next_context==~(ULONG)0 || m->references==~(ULONG)0)goto unlock;
+     req.header.context=++d->next_context;
+-    if(!raw_command(d,&req,sizeof(req),GPU_OK_NODATA,sizeof(struct gpu_header),&received,TRUE)){
++    if(!raw_command(d,&req,sizeof(req),GPU_OK_NODATA,sizeof(struct gpu_header),&received,FALSE)){
+         /* No context at all (none open yet): the host cannot run VirGL. */
+         if(!m->references){m->error="host refused a VirGL context";m->unusable=TRUE;}
+         goto unlock;
+diff --git a/workbench/hidds/virgl/virgl_winsys_aros.c b/workbench/hidds/virgl/virgl_winsys_aros.c
+index f7634ef2..496764eb 100644
+--- a/workbench/hidds/virgl/virgl_winsys_aros.c
++++ b/workbench/hidds/virgl/virgl_winsys_aros.c
+@@ -35,6 +35,10 @@ struct avgl_ws {
+     struct virgl_winsys **owner_slot;
+ };
+ static struct avgl_ws *ws_cast(struct virgl_winsys *ws) { return (struct avgl_ws *)ws; }
++/* Commands are sent without a fence: each one waits for its completion
++ * anyway, and QEMU answers an unfenced command as soon as it has processed
++ * it, in order. A fenced command is answered only when QEMU polls its fences,
++ * every 10 ms, which made every command cost about 10 ms. */
+ static bool send_request(struct avgl_ws *ws, const void *req, ULONG size, bool fence)
+ {
+     ULONG received;
+@@ -98,11 +102,11 @@ static struct virgl_hw_res *ws_resource_create(struct virgl_winsys *vws,
+     create.resource=attach.resource=backing.resource=res->id;
+     backing.address=avgl_dma_address(&ws->transport,res->map);
+     if(!backing.address || backing.address==~(UQUAD)0)goto rollback;
+-    if(!send_request(ws,&create,sizeof(create),true))goto rollback;
++    if(!send_request(ws,&create,sizeof(create),false))goto rollback;
+     created=true;
+-    if(!send_request(ws,&attach,sizeof(attach),true))goto rollback;
++    if(!send_request(ws,&attach,sizeof(attach),false))goto rollback;
+     attached=true;
+-    if(!send_request(ws,&backing,sizeof(backing),true))goto rollback;
++    if(!send_request(ws,&backing,sizeof(backing),false))goto rollback;
+     backed=true;
+     res->next=ws->resources;ws->resources=res;
+     goto done;
+@@ -128,7 +132,7 @@ static int ws_transfer(struct virgl_winsys *vws,struct virgl_hw_res *res,
+     if (offset>=res->size || box->x<0 || box->y<0 || box->z<0 ||
+         box->width<=0 || box->height<=0 || box->depth<=0) goto done;
+     if (!avgl_backing_begin(&ws->transport,res->map,flags)) goto done;
+-    ok=send_request(ws,&req,sizeof(req),true);
++    ok=send_request(ws,&req,sizeof(req),false);
+     avgl_backing_end(&ws->transport,res->map);
+  done:
+     /* Mesa's transfer queue does not propagate this return value. Losing a
+@@ -223,7 +227,7 @@ static int ws_submit(struct virgl_winsys *vws,struct virgl_cmd_buf *base,struct
+         if(!req)ok=false;
+         else {
+             req->header.type=GPU_SUBMIT_3D;req->header.context=ws->transport.context;req->size=size;
+-            CopyMem(base->buf,req+1,size);ok=send_request(ws,req,sizeof(*req)+size,true);
++            CopyMem(base->buf,req+1,size);ok=send_request(ws,req,sizeof(*req)+size,false);
+         }
+     }
+     /* The pinned core ignores submit's return value and reuses its command
+-- 
+2.54.0 (Apple Git-157)
+
