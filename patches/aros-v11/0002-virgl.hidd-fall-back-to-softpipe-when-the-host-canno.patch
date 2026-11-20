@@ -1,0 +1,458 @@
+From 5087c160fe62e9b1c215dc58150ce98fca63a8e3 Mon Sep 17 00:00:00 2001
+From: tomaszstaniak <68373859+tomaszstaniak@users.noreply.github.com>
+Date: Fri, 20 Nov 2026 22:37:08 +0100
+Subject: [PATCH] virgl.hidd: fall back to softpipe when the host cannot run
+ VirGL, report the reason in ENV:VirGL-Status, wait for replies by time
+ instead of a fixed spin
+
+---
+ workbench/hidds/virgl/test/glcheck.c       | 12 ++-
+ workbench/hidds/virgl/test/glstress.c      | 94 ++++++++++++++++++++++
+ workbench/hidds/virgl/virgl_galliumclass.c | 53 ++++++++++--
+ workbench/hidds/virgl/virgl_transport.c    | 90 ++++++++++++++++-----
+ workbench/hidds/virgl/virgl_transport.h    |  6 ++
+ 5 files changed, 228 insertions(+), 27 deletions(-)
+ create mode 100644 workbench/hidds/virgl/test/glstress.c
+
+diff --git a/workbench/hidds/virgl/test/glcheck.c b/workbench/hidds/virgl/test/glcheck.c
+index fea8258f..1a287db2 100644
+--- a/workbench/hidds/virgl/test/glcheck.c
++++ b/workbench/hidds/virgl/test/glcheck.c
+@@ -7,6 +7,7 @@
+ #include <proto/exec.h>
+ #include <proto/dos.h>
+ #include <proto/intuition.h>
++#include <dos/var.h>
+ #include <GL/gl.h>
+ #include <GL/gla.h>
+ #include <stdio.h>
+@@ -24,6 +25,14 @@ static int pixel(int x, int y, int r, int g, int b, const char *what)
+     return ok;
+ }
+ 
++/* virgl.hidd leaves the renderer it chose, and why, in ENV:VirGL-Status. */
++static void status(void)
++{
++    char text[200];
++    if (GetVar((CONST_STRPTR)"VirGL-Status", (STRPTR)text, sizeof(text), GVF_GLOBAL_ONLY) > 0)
++        printf("VirGL-Status: %s\n", text);
++}
++
+ int main(int argc, char **argv)
+ {
+     static const unsigned char tex[16] = {
+@@ -45,12 +54,13 @@ int main(int argc, char **argv)
+     if (!win) { printf("FAIL: no window\n"); return 20; }
+     ctx = glACreateContextTags(GLA_Window, (IPTR)win, GLA_DoubleBuf, TRUE,
+         GLA_RGBMode, TRUE, TAG_DONE);
+-    if (!ctx) { printf("FAIL: no GL context\n"); CloseWindow(win); return 20; }
++    if (!ctx) { status(); printf("FAIL: no GL context\n"); CloseWindow(win); return 20; }
+     glAMakeCurrent(ctx);
+     renderer = (const char *)glGetString(GL_RENDERER);
+     printf("GL_RENDERER: %s\n", renderer ? renderer : "(null)");
+     printf("GL_VERSION: %s\n", (const char *)glGetString(GL_VERSION));
+     printf("GL_VENDOR: %s\n", (const char *)glGetString(GL_VENDOR));
++    status();
+     if (!renderer || !strstr(renderer, expect)) ok = 0;
+ 
+     glViewport(0, 0, 256, 256);
+diff --git a/workbench/hidds/virgl/test/glstress.c b/workbench/hidds/virgl/test/glstress.c
+new file mode 100644
+index 00000000..7aff6d34
+--- /dev/null
++++ b/workbench/hidds/virgl/test/glstress.c
+@@ -0,0 +1,94 @@
++/* Copyright (C) 2026, The AROS Development Team. All rights reserved.
++ * Loads textures like a game does, draws with them, then ends either with
++ * glADestroyContext or, with "noclean", without it, as a program that is
++ * stopped or crashes does. Used to look for resources left behind.
++ * usage: glstress [textures] [frames] [clean|noclean] */
++#include <exec/types.h>
++#include <intuition/intuition.h>
++#include <proto/exec.h>
++#include <proto/dos.h>
++#include <proto/intuition.h>
++#include <GL/gl.h>
++#include <GL/gla.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++#define SIDE 256
++
++int main(int argc, char **argv)
++{
++    int count = argc > 1 ? atoi(argv[1]) : 64;
++    int frames = argc > 2 ? atoi(argv[2]) : 60;
++    int clean = !(argc > 3 && !strcmp(argv[3], "noclean"));
++    static unsigned char pixels[SIDE * SIDE * 4];
++    struct DateStamp t0, t1;
++    struct Window *win;
++    GLAContext ctx;
++    GLuint *names;
++    LONG ticks;
++    int i, f;
++
++    if (count < 1 || count > 4096 || frames < 0) return 20;
++    names = calloc(count, sizeof(*names));
++    if (!names) return 20;
++    win = OpenWindowTags(NULL, WA_Title, (IPTR)"glstress", WA_Left, 320, WA_Top, 40,
++        WA_InnerWidth, 256, WA_InnerHeight, 256, WA_DragBar, TRUE,
++        WA_Activate, FALSE, TAG_DONE);
++    if (!win) { printf("FAIL: no window\n"); return 20; }
++    ctx = glACreateContextTags(GLA_Window, (IPTR)win, GLA_DoubleBuf, TRUE,
++        GLA_RGBMode, TRUE, TAG_DONE);
++    if (!ctx) { printf("FAIL: no GL context\n"); CloseWindow(win); return 20; }
++    glAMakeCurrent(ctx);
++    printf("GL_RENDERER: %s\n", (const char *)glGetString(GL_RENDERER));
++
++    DateStamp(&t0);
++    glGenTextures(count, names);
++    for (i = 0; i < count; i++) {
++        memset(pixels, i * 37, sizeof(pixels));
++        glBindTexture(GL_TEXTURE_2D, names[i]);
++        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
++        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
++        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, SIDE, SIDE, 0, GL_RGBA,
++            GL_UNSIGNED_BYTE, pixels);
++    }
++    glFinish();
++    DateStamp(&t1);
++    ticks = (t1.ds_Minute - t0.ds_Minute) * 3000 + (t1.ds_Tick - t0.ds_Tick);
++    printf("textures: %d in %ld ms\n", count, (long)ticks * 20);
++
++    glViewport(0, 0, 256, 256);
++    glEnable(GL_TEXTURE_2D);
++    DateStamp(&t0);
++    for (f = 0; f < frames; f++) {
++        glClear(GL_COLOR_BUFFER_BIT);
++        for (i = 0; i < 16; i++) {
++            float x = -1.0f + (i % 4) * 0.5f, y = -1.0f + (i / 4) * 0.5f;
++            glBindTexture(GL_TEXTURE_2D, names[(f + i) % count]);
++            glBegin(GL_QUADS);
++            glTexCoord2f(0, 0); glVertex2f(x, y);
++            glTexCoord2f(1, 0); glVertex2f(x + 0.5f, y);
++            glTexCoord2f(1, 1); glVertex2f(x + 0.5f, y + 0.5f);
++            glTexCoord2f(0, 1); glVertex2f(x, y + 0.5f);
++            glEnd();
++        }
++        glASwapBuffers(ctx);
++    }
++    DateStamp(&t1);
++    ticks = (t1.ds_Minute - t0.ds_Minute) * 3000 + (t1.ds_Tick - t0.ds_Tick);
++    if (frames > 0)
++        printf("frames: %d in %ld ms (%ld ms per frame)\n", frames,
++            (long)ticks * 20, (long)ticks * 20 / frames);
++    printf("GL_ERROR: %u\n", (unsigned)glGetError());
++
++    if (clean) {
++        glDeleteTextures(count, names);
++        glAMakeCurrent(NULL);
++        glADestroyContext(ctx);
++        printf("context destroyed\n");
++    } else
++        printf("context left alive\n");
++    CloseWindow(win);
++    free(names);
++    return 0;
++}
+diff --git a/workbench/hidds/virgl/virgl_galliumclass.c b/workbench/hidds/virgl/virgl_galliumclass.c
+index 913933ea..0781fffa 100644
+--- a/workbench/hidds/virgl/virgl_galliumclass.c
++++ b/workbench/hidds/virgl/virgl_galliumclass.c
+@@ -5,6 +5,9 @@
+ #include <proto/utility.h>
+ #include <proto/graphics.h>
+ #include <proto/cybergraphics.h>
++#include <proto/dos.h>
++#include <dos/var.h>
++#include <exec/tasks.h>
+ #include <cybergraphx/cybergraphics.h>
+ #include <hidd/gallium.h>
+ #include <gallium/gallium.h>
+@@ -18,16 +21,56 @@
+ #define UtilityBase (SD(cl)->UtilityBase)
+ #undef HiddGalliumAttrBase
+ #define HiddGalliumAttrBase (SD(cl)->hiddGalliumAB)
++/* ENV:VirGL-Status tells the user which renderer a program got and why:
++ * "virgl" or "softpipe: <reason>". Only written from a DOS process. */
++static void report(const char *status)
++{
++    struct Task *me=FindTask(NULL);
++    struct Library *DOSBase;
++    if(me->tc_Node.ln_Type!=NT_PROCESS)return;
++    DOSBase=OpenLibrary((STRPTR)"dos.library",36);
++    if(!DOSBase)return;
++    SetVar((STRPTR)"VirGL-Status",(STRPTR)status,-1,GVF_GLOBAL_ONLY|LV_VAR);
++    CloseLibrary(DOSBase);
++}
++static void report_failure(OOP_Class *cl)
++{
++    char text[160]="softpipe: ";
++    const char *why=avgl_manager_error(&SD(cl)->manager);
++    ULONG n=10;
++    if(!why)why="VirGL renderer could not start";
++    while(*why && n<sizeof(text)-1)text[n++]=*why++;
++    text[n]=0;
++    bug("[virgl.hidd] %s\n",text);
++    report(text);
++}
++/* The screen is made here, not on first use: if the host cannot run VirGL,
++ * the constructor fails and gallium.library falls back to softpipe. */
+ OOP_Object *METHOD(HiddVirgl,Root,New)
+ {
++    struct HiddGalliumVirglData *d;
+     if(GetTagData(aHidd_Gallium_InterfaceVersion,-1,msg->attrList)!=GALLIUM_INTERFACE_VERSION)return NULL;
+-    if(!avgl_device_present(&SD(cl)->manager))return NULL;
++    if(!avgl_device_present(&SD(cl)->manager)){
++        if(avgl_manager_error(&SD(cl)->manager))report_failure(cl);
++        return NULL;
++    }
+     o=(OOP_Object*)OOP_DoSuperMethod(cl,o,(OOP_Msg)msg);
+-    if(o){
+-        struct HiddGalliumVirglData *d=OOP_INST_DATA(cl,o);
+-        d->winsys=NULL;d->screen=NULL;
+-        InitSemaphore(&d->screen_lock);
++    if(!o)return NULL;
++    d=OOP_INST_DATA(cl,o);
++    d->winsys=NULL;d->screen=NULL;
++    InitSemaphore(&d->screen_lock);
++    d->winsys=avgl_winsys_create(&d->winsys,&SD(cl)->manager);
++    if(d->winsys){
++        d->screen=virgl_create_screen(d->winsys,NULL);
++        if(!d->screen && d->winsys)avgl_winsys_dispose(d->winsys);
++    }
++    if(!d->screen){
++        OOP_MethodID dispose=OOP_GetMethodID(IID_Root,moRoot_Dispose);
++        report_failure(cl);
++        OOP_CoerceMethod(cl,o,(OOP_Msg)&dispose);
++        return NULL;
+     }
++    report("virgl");
+     return o;
+ }
+ VOID METHOD(HiddVirgl,Root,Dispose)
+diff --git a/workbench/hidds/virgl/virgl_transport.c b/workbench/hidds/virgl/virgl_transport.c
+index de2a1344..091b0242 100644
+--- a/workbench/hidds/virgl/virgl_transport.c
++++ b/workbench/hidds/virgl/virgl_transport.c
+@@ -5,9 +5,11 @@
+ #include <exec/memory.h>
+ #include <dos/dos.h>
+ #include <utility/hooks.h>
++#include <devices/timer.h>
+ #include <proto/exec.h>
+ #include <proto/dos.h>
+ #include <proto/oop.h>
++#include <proto/timer.h>
+ #include <aros/debug.h>
+ 
+ #include <stddef.h>
+@@ -34,6 +36,7 @@ struct avgl_device {
+     struct SignalSemaphore queue;
+     ULONG next_context, next_resource;
+     STRPTR owner_name;
++    const char *error;
+     UQUAD fence;
+     ULONG request_dma_length, response_dma_length;
+     BOOL request_dma_active, response_dma_active;
+@@ -57,6 +60,25 @@ OOP_AttrBase HiddPCIDeviceAttrBase;
+ #define DMA_BYTES (RESPONSE_OFFSET + RESPONSE_BYTES)
+ #define POLL_TICKS 500
+ #define SPIN_LOOPS 200000
++/* How long to watch the ring before sleeping. A timer tick is 20 ms, so a
++ * reply that misses a short spin costs a whole tick; a full-screen readback
++ * on the host can take a few milliseconds. */
++#define SPIN_MS 100
++struct Device *TimerBase;
++static struct timerequest timer_request;
++static UQUAD eclock_now(void)
++{
++    struct EClockVal v;
++    ReadEClock(&v);
++    return ((UQUAD)v.ev_hi << 32) | v.ev_lo;
++}
++/* timer.device only gives the E-clock; nothing is ever sent to it. */
++static void open_timer(void)
++{
++    if (TimerBase) return;
++    if (OpenDevice((STRPTR)TIMERNAME, UNIT_MICROHZ, &timer_request.tr_node, 0) == 0)
++        TimerBase = timer_request.tr_node.io_Device;
++}
+ struct avgl_allocation {
+     struct avgl_allocation *next;
+     APTR pointer;
+@@ -275,9 +297,21 @@ static BOOL raw_command(struct avgl_device *s, const void *input, ULONG req_len,
+     *s->notify = 0;
+     /* The host usually answers within microseconds; a timer tick is 20 ms.
+      * Look at the ring for a short while before giving the CPU away. */
+-    for (i = 0; i < SPIN_LOOPS; i++) {
+-        __sync_synchronize();
+-        if (s->used->idx != s->last_used) break;
++    if (TimerBase) {
++        struct EClockVal v;
++        UQUAD start, limit;
++        limit = (UQUAD)ReadEClock(&v) * SPIN_MS / 1000;
++        start = ((UQUAD)v.ev_hi << 32) | v.ev_lo;
++        for (i = 0;; i++) {
++            __sync_synchronize();
++            if (s->used->idx != s->last_used) break;
++            if ((i & 255) == 0 && eclock_now() - start > limit) break;
++        }
++    } else {
++        for (i = 0; i < SPIN_LOOPS; i++) {
++            __sync_synchronize();
++            if (s->used->idx != s->last_used) break;
++        }
+     }
+     for (i = 0; i < POLL_TICKS; i++) {
+         __sync_synchronize();
+@@ -358,60 +392,62 @@ static BOOL device_open(struct avgl_device *s, struct Library *utility_base)
+     ULONG cap_count, i, bytes;
+     avgl_native_clear(utility_base, s, sizeof(*s));
+     s->utility_base = utility_base;
++    open_timer();
+     InitSemaphore(&s->queue);
+     HiddPCIDeviceAttrBase = OOP_ObtainAttrBase(IID_Hidd_PCIDevice);
+-    if (!HiddPCIDeviceAttrBase) return FALSE;
++    if (!HiddPCIDeviceAttrBase) { s->error = "PCI attributes unavailable"; return FALSE; }
+     s->attr_owned=TRUE;
+     s->pci = OOP_NewObject(NULL, CLID_Hidd_PCI, NULL);
+-    if (!s->pci) goto fail;
++    if (!s->pci) { s->error = "PCI bus unavailable"; goto fail; }
+     HIDD_PCI_EnumDevices(s->pci, &hook, requirements);
+-    if (s->matches != 1) { bug("[virgl] need one secondary GPU, got %u\n",s->matches); goto fail; }
++    if (s->matches != 1) { bug("[virgl] need one secondary GPU, got %u\n",s->matches); s->error = "not exactly one second VirtIO-GPU card"; goto fail; }
+     s->owner_name = AllocVec(80, MEMF_ANY);
+-    if (!s->owner_name) goto fail;
++    if (!s->owner_name) { s->error = "out of memory"; goto fail; }
+     CopyMem("virgl.hidd", s->owner_name, sizeof("virgl.hidd"));
+-    if (HIDD_PCIDevice_Obtain(s->device,s->owner_name)) { bug("[virgl] device busy\n"); goto fail; }
++    if (HIDD_PCIDevice_Obtain(s->device,s->owner_name)) { bug("[virgl] device busy\n"); s->error = "card in use by another driver"; goto fail; }
+     s->owned = TRUE;
+     s->command = HIDD_PCIDevice_ReadConfigWord(s->device,PCI_COMMAND);
+     s->driver = (APTR)attr(s->device,aHidd_PCIDevice_Driver);
+-    if (!s->driver || !capabilities(s)) goto fail;
++    if (!s->driver || !capabilities(s)) { s->error = "card is not a modern VirtIO device"; goto fail; }
+     HIDD_PCIDevice_WriteConfigWord(s->device,PCI_COMMAND,s->command|PCI_MEMORY);
+-    if (!map_windows(s) || s->common->device_status != 0) goto fail;
++    if (!map_windows(s) || s->common->device_status != 0) { s->error = "card registers cannot be mapped"; goto fail; }
+     HIDD_PCIDevice_WriteConfigWord(s->device,PCI_COMMAND,s->command|PCI_MEMORY|PCI_MASTER|PCI_INTX_DISABLE);
+     s->changed = TRUE;
+-    if (!reset(s)) goto fail;
++    if (!reset(s)) { s->error = "card does not reset"; goto fail; }
+     s->common->device_status = VIRTIO_CONFIG_S_ACKNOWLEDGE|VIRTIO_CONFIG_S_DRIVER;
+     s->common->device_feature_select=0; __sync_synchronize(); have=s->common->device_feature;
+     s->common->device_feature_select=1; __sync_synchronize(); have|=(UQUAD)s->common->device_feature<<32;
+     wanted=(1ULL<<VIRTIO_F_VERSION_1)|GPU_F_VIRGL;
+-    if ((have&wanted)!=wanted) goto fail;
++    if ((have&wanted)!=wanted) { s->error = (have&GPU_F_VIRGL) ? "card is not VirtIO 1.0" : "card has no 3D (start QEMU with virtio-gpu-gl-pci and an OpenGL display)"; goto fail; }
+     s->common->guest_feature_select=0; s->common->guest_feature=(ULONG)wanted;
+     s->common->guest_feature_select=1; s->common->guest_feature=(ULONG)(wanted>>32);
+     __sync_synchronize(); s->common->device_status|=VIRTIO_CONFIG_S_FEATURES_OK;
+-    __sync_synchronize(); if (!(s->common->device_status&VIRTIO_CONFIG_S_FEATURES_OK)) goto fail;
++    __sync_synchronize(); if (!(s->common->device_status&VIRTIO_CONFIG_S_FEATURES_OK)) { s->error = "card refused the features"; goto fail; }
+     cap_count=*(volatile ULONG*)(s->config+12);
+-    if (!cap_count || cap_count>16 || s->common->num_queues<2) goto fail;
++    if (!cap_count || cap_count>16 || s->common->num_queues<2) { s->error = "host offers no 3D capability sets"; goto fail; }
+     s->dma=HIDD_PCIDriver_AllocPCIMem(s->driver,DMA_BYTES);
+-    if (!s->dma) goto fail;
++    if (!s->dma) { s->error = "out of DMA memory"; goto fail; }
+     avgl_native_clear(s->utility_base, s->dma, DMA_BYTES); s->desc=s->dma;
+     s->avail=(APTR)((UBYTE*)s->dma+256); s->used=(APTR)((UBYTE*)s->dma+512);
+-    if (!setup_queue(s,0)||!setup_queue(s,1)) goto fail;
++    if (!setup_queue(s,0)||!setup_queue(s,1)) { s->error = "card queues cannot be set up"; goto fail; }
+     s->common->device_status|=VIRTIO_CONFIG_S_DRIVER_OK;
+     /* Legacy capset1 deliberately excludes blob/fence-fd features in this prototype. */
+     for (i=0;i<cap_count;i++) {
+         struct capset_info *info; ULONG version,size;
+-        if (!query(s,GPU_GET_CAPSET_INFO,i,0,GPU_OK_CAPSET_INFO,sizeof(*info),&bytes)) goto fail;
++        if (!query(s,GPU_GET_CAPSET_INFO,i,0,GPU_OK_CAPSET_INFO,sizeof(*info),&bytes)) { s->error = "host did not describe its 3D capabilities"; goto fail; }
+         info=(APTR)((UBYTE*)s->dma+RESPONSE_OFFSET);
+         if (info->id!=1) continue;
+         version=info->version; size=info->size;
+-        if (!size||size>sizeof(s->caps)||size>RESPONSE_BYTES-sizeof(struct gpu_header)) goto fail;
+-        if (!query(s,GPU_GET_CAPSET,1,version,GPU_OK_CAPSET,size+sizeof(struct gpu_header),&bytes)) goto fail;
++        if (!size||size>sizeof(s->caps)||size>RESPONSE_BYTES-sizeof(struct gpu_header)) { s->error = "host 3D capabilities too large"; goto fail; }
++        if (!query(s,GPU_GET_CAPSET,1,version,GPU_OK_CAPSET,size+sizeof(struct gpu_header),&bytes)) { s->error = "host did not send its 3D capabilities"; goto fail; }
+         CopyMem((UBYTE*)s->dma+RESPONSE_OFFSET+sizeof(struct gpu_header),s->caps,size);
+         s->caps_size=size; break;
+     }
+-    if (!s->caps_size) goto fail;
++    if (!s->caps_size) { s->error = "host offers no VirGL capability set"; goto fail; }
+     D(bug("[virgl] transport ready, capset1=%lu bytes\n",(unsigned long)s->caps_size));
+     return TRUE;
+  fail:
++    bug("[virgl] device not usable: %s\n", s->error ? s->error : "unknown");
+     return FALSE;
+ }
+ 
+@@ -425,6 +461,7 @@ BOOL avgl_device_present(struct avgl_manager *m)
+     OOP_Object *pci;
+     BOOL found = FALSE, owned = FALSE;
+     ObtainSemaphore(&m->mutex);
++    if (m->unusable) { ReleaseSemaphore(&m->mutex); return FALSE; }
+     if (m->device) { ReleaseSemaphore(&m->mutex); return TRUE; }
+     probe.device = NULL; probe.matches = 0;
+     if (!HiddPCIDeviceAttrBase) {
+@@ -443,6 +480,12 @@ BOOL avgl_device_present(struct avgl_manager *m)
+     ReleaseSemaphore(&m->mutex);
+     return found;
+ }
++const char *avgl_manager_error(struct avgl_manager *m)
++{
++    const char *e;
++    ObtainSemaphore(&m->mutex);e=m->error;ReleaseSemaphore(&m->mutex);
++    return e;
++}
+ void avgl_manager_init(struct avgl_manager *m, struct Library *utility_base)
+ {
+     InitSemaphore(&m->mutex);m->utility_base=utility_base;m->initialized=TRUE;
+@@ -582,6 +625,7 @@ BOOL avgl_open(struct avgl_transport *s,struct avgl_manager *m)
+         d=avgl_native_alloc(sizeof(*d));if(!d)goto done;
+         m->device=d;
+         if(!device_open(d,m->utility_base)){
++            m->error=d->error?d->error:"card not usable";m->unusable=TRUE;
+             if(device_close(d)){m->device=NULL;FreeVec(d);}
+             goto done;
+         }
+@@ -589,7 +633,11 @@ BOOL avgl_open(struct avgl_transport *s,struct avgl_manager *m)
+     ObtainSemaphore(&d->queue);
+     if(d->failed || d->next_context==~(ULONG)0 || m->references==~(ULONG)0)goto unlock;
+     req.header.context=++d->next_context;
+-    if(!raw_command(d,&req,sizeof(req),GPU_OK_NODATA,sizeof(struct gpu_header),&received,TRUE))goto unlock;
++    if(!raw_command(d,&req,sizeof(req),GPU_OK_NODATA,sizeof(struct gpu_header),&received,TRUE)){
++        /* No context at all (none open yet): the host cannot run VirGL. */
++        if(!m->references){m->error="host refused a VirGL context";m->unusable=TRUE;}
++        goto unlock;
++    }
+     s->device=d;s->context=req.header.context;s->context_created=TRUE;
+     CopyMem(d->caps,s->caps,d->caps_size);s->caps_size=d->caps_size;
+     m->references++;ok=TRUE;
+diff --git a/workbench/hidds/virgl/virgl_transport.h b/workbench/hidds/virgl/virgl_transport.h
+index 7f8aa1be..4cebcb63 100644
+--- a/workbench/hidds/virgl/virgl_transport.h
++++ b/workbench/hidds/virgl/virgl_transport.h
+@@ -16,6 +16,11 @@ struct avgl_manager {
+     struct Library *utility_base;
+     ULONG references;
+     BOOL initialized;
++    /* Set when the adapter is there but cannot be used (the host refused
++     * VirGL, or the device did not answer). Stays until reboot, so later
++     * contexts go straight to the software renderer. */
++    BOOL unusable;
++    const char *error;
+ };
+ /* Only this logical record belongs to a winsys. All physical ownership,
+  * including quarantined allocations, remains in the root manager. */
+@@ -30,6 +35,7 @@ struct avgl_transport {
+ void avgl_manager_init(struct avgl_manager *m, struct Library *utility_base);
+ BOOL avgl_manager_can_expunge(struct avgl_manager *m);
+ BOOL avgl_device_present(struct avgl_manager *m);
++const char *avgl_manager_error(struct avgl_manager *m);
+ BOOL avgl_healthy(struct avgl_transport *s);
+ ULONG avgl_resource_id(struct avgl_transport *s);
+ BOOL avgl_cleanup_command(struct avgl_transport *s, const void *input, ULONG bytes);
+-- 
+2.54.0 (Apple Git-157)
+

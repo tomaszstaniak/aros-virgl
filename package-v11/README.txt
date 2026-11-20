@@ -1,4 +1,4 @@
-VirGL for AROS x86_64 ABIv11, internal test package 0.2.0-test1
+VirGL for AROS x86_64 ABIv11, internal test package 0.2.0-test2
 ===============================================================
 
 Not a public release. For checking OpenGL through VirGL in an ABIv11 system
@@ -46,7 +46,9 @@ Installation
 ------------
 1. Copy this drawer to the AROS disk, open a Shell and CD into it.
 2. Execute Install
-   The replaced file is first copied to SYS:VirGL-rollback-0.2.0-test1.
+   The replaced file is first copied to SYS:VirGL-rollback-0.2.0-test2.
+   Installing over 0.2.0-test1 is fine: Install takes over the system
+   files test1 saved, so Rollback still brings back the original ones.
 3. Shut down and start QEMU with the second adapter.
 
 Checks
@@ -57,6 +59,12 @@ prints GL_RENDERER (expected "virgl"), checks a clear, a triangle and a
 texture by reading pixels back, draws 60 frames and prints the time per
 frame, then PASS or FAIL. Without the second adapter "Tools/glcheck
 softpipe" checks the software renderer the same way.
+
+ENV:VirGL-Status says which renderer the last OpenGL program got:
+"virgl", or "softpipe:" followed by the reason VirGL could not be used,
+for example "card has no 3D". glcheck prints it too. When VirGL cannot
+start, programs now get the software renderer instead of no OpenGL at
+all.
 
 Then start any OpenGL program.
 
@@ -71,11 +79,18 @@ Known limits
 ------------
 - OpenGL 2.1 is what this Mesa's VirGL driver reports here.
 - Each frame is read back from the host and copied into the window, and
-  every command waits for the host. Measured under software CPU emulation:
-  about 100 ms per frame for a 256x256 window, slower than the software
-  renderer for a trivial scene there. Speed under KVM is not measured yet.
+  every command waits for the host. Measured under software CPU emulation
+  for a 256x256 window: about 30 ms per frame (test1: about 100 ms).
 - One VirtIO-GPU adapter, and it must be the second card, not the one the
   desktop runs on.
+
+Changes since 0.2.0-test1
+-------------------------
+- Software renderer instead of "no GL context" when the host cannot run
+  VirGL, with the reason in ENV:VirGL-Status.
+- Faster: the driver no longer sleeps a whole timer tick (20 ms) when the
+  host takes longer than a very short wait. Frames and texture loading
+  were about three times faster in our test.
 
 Source
 ------

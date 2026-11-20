@@ -1,23 +1,23 @@
 FailAt 10
-If NOT EXISTS SYS:VirGL-rollback-0.2.0-test1/BACKUP_COMPLETE
+If NOT EXISTS SYS:VirGL-rollback-0.2.0-test2/BACKUP_COMPLETE
 Echo "No complete backup found; nothing restored."
 Quit 20
 EndIf
-If EXISTS SYS:VirGL-rollback-0.2.0-test1/gallium.library.absent
+If EXISTS SYS:VirGL-rollback-0.2.0-test2/gallium.library.absent
 If EXISTS SYS:Libs/gallium.library
 Delete SYS:Libs/gallium.library
 EndIf
 Else
-Copy SYS:VirGL-rollback-0.2.0-test1/gallium.library SYS:Libs/gallium.library CLONE
+Copy SYS:VirGL-rollback-0.2.0-test2/gallium.library SYS:Libs/gallium.library CLONE
 EndIf
-If EXISTS SYS:VirGL-rollback-0.2.0-test1/virgl.hidd.absent
+If EXISTS SYS:VirGL-rollback-0.2.0-test2/virgl.hidd.absent
 If EXISTS SYS:Devs/Drivers/virgl.hidd
 Delete SYS:Devs/Drivers/virgl.hidd
 EndIf
 Else
-Copy SYS:VirGL-rollback-0.2.0-test1/virgl.hidd SYS:Devs/Drivers/virgl.hidd CLONE
+Copy SYS:VirGL-rollback-0.2.0-test2/virgl.hidd SYS:Devs/Drivers/virgl.hidd CLONE
 EndIf
-If EXISTS SYS:VirGL-rollback-0.2.0-test1/INSTALLED
-Delete SYS:VirGL-rollback-0.2.0-test1/INSTALLED
+If EXISTS SYS:VirGL-rollback-0.2.0-test2/INSTALLED
+Delete SYS:VirGL-rollback-0.2.0-test2/INSTALLED
 EndIf
 Echo "Original files restored. Cold reboot."
