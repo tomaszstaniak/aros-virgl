@@ -1,0 +1,36 @@
+.key PACKAGE
+.bra {
+.ket }
+FailAt 10
+Assign VirGLPkg: "{PACKAGE}"
+If NOT EXISTS VirGLPkg:Devs/Drivers/virgl.hidd
+Echo "Package files not found. Run Install from the package drawer, or give its path."
+Assign VirGLPkg: REMOVE
+Quit 20
+EndIf
+If EXISTS SYS:VirGL-rollback-0.2.0-test1/INSTALLED
+Echo "Already installed. Run Rollback first to install again."
+Assign VirGLPkg: REMOVE
+Quit 20
+EndIf
+If NOT EXISTS SYS:VirGL-rollback-0.2.0-test1/BACKUP_COMPLETE
+If NOT EXISTS SYS:VirGL-rollback-0.2.0-test1
+MakeDir SYS:VirGL-rollback-0.2.0-test1
+EndIf
+If EXISTS SYS:Libs/gallium.library
+Copy SYS:Libs/gallium.library SYS:VirGL-rollback-0.2.0-test1/gallium.library CLONE
+Else
+Echo absent >SYS:VirGL-rollback-0.2.0-test1/gallium.library.absent
+EndIf
+If EXISTS SYS:Devs/Drivers/virgl.hidd
+Copy SYS:Devs/Drivers/virgl.hidd SYS:VirGL-rollback-0.2.0-test1/virgl.hidd CLONE
+Else
+Echo absent >SYS:VirGL-rollback-0.2.0-test1/virgl.hidd.absent
+EndIf
+Echo complete >SYS:VirGL-rollback-0.2.0-test1/BACKUP_COMPLETE
+EndIf
+Copy VirGLPkg:Libs/gallium.library SYS:Libs/gallium.library CLONE
+Copy VirGLPkg:Devs/Drivers/virgl.hidd SYS:Devs/Drivers/virgl.hidd CLONE
+Echo installed >SYS:VirGL-rollback-0.2.0-test1/INSTALLED
+Assign VirGLPkg: REMOVE
+Echo "Files installed. Cold reboot, then start QEMU with the second VirtIO-GPU adapter."

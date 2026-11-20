@@ -1,0 +1,1857 @@
+From c4f2c6b424c17f1b76cb0f47564ec40779922538 Mon Sep 17 00:00:00 2001
+From: tomaszstaniak <68373859+tomaszstaniak@users.noreply.github.com>
+Date: Fri, 20 Nov 2026 12:42:33 +0100
+Subject: [PATCH] virgl.hidd: VirGL gallium driver on a second VirtIO-GPU
+ adapter (Mesa 20.0.8); gallium.library prefers it when its device is present
+
+---
+ workbench/hidds/virgl/compat/libsync.h     |   9 +
+ workbench/hidds/virgl/mmakefile.src        |  50 ++
+ workbench/hidds/virgl/test/glcheck.c       | 112 ++++
+ workbench/hidds/virgl/virgl.conf           |  26 +
+ workbench/hidds/virgl/virgl_galliumclass.c |  95 ++++
+ workbench/hidds/virgl/virgl_gpu_protocol.h | 105 ++++
+ workbench/hidds/virgl/virgl_init.c         |  33 ++
+ workbench/hidds/virgl/virgl_intern.h       |  32 ++
+ workbench/hidds/virgl/virgl_native.h       |  28 +
+ workbench/hidds/virgl/virgl_stubs.c        |   9 +
+ workbench/hidds/virgl/virgl_transport.c    | 601 +++++++++++++++++++++
+ workbench/hidds/virgl/virgl_transport.h    |  48 ++
+ workbench/hidds/virgl/virgl_virtio.h       | 191 +++++++
+ workbench/hidds/virgl/virgl_winsys_aros.c  | 306 +++++++++++
+ workbench/hidds/virgl/virgl_winsys_aros.h  |  13 +
+ workbench/libs/gallium/createpipe.c        |  17 +
+ workbench/libs/gallium/gallium_init.c      |   4 +
+ workbench/libs/gallium/gallium_intern.h    |   2 +
+ 18 files changed, 1681 insertions(+)
+ create mode 100644 workbench/hidds/virgl/compat/libsync.h
+ create mode 100644 workbench/hidds/virgl/mmakefile.src
+ create mode 100644 workbench/hidds/virgl/test/glcheck.c
+ create mode 100644 workbench/hidds/virgl/virgl.conf
+ create mode 100644 workbench/hidds/virgl/virgl_galliumclass.c
+ create mode 100644 workbench/hidds/virgl/virgl_gpu_protocol.h
+ create mode 100644 workbench/hidds/virgl/virgl_init.c
+ create mode 100644 workbench/hidds/virgl/virgl_intern.h
+ create mode 100644 workbench/hidds/virgl/virgl_native.h
+ create mode 100644 workbench/hidds/virgl/virgl_stubs.c
+ create mode 100644 workbench/hidds/virgl/virgl_transport.c
+ create mode 100644 workbench/hidds/virgl/virgl_transport.h
+ create mode 100644 workbench/hidds/virgl/virgl_virtio.h
+ create mode 100644 workbench/hidds/virgl/virgl_winsys_aros.c
+ create mode 100644 workbench/hidds/virgl/virgl_winsys_aros.h
+
+diff --git a/workbench/hidds/virgl/compat/libsync.h b/workbench/hidds/virgl/compat/libsync.h
+new file mode 100644
+index 00000000..c2297c5b
+--- /dev/null
++++ b/workbench/hidds/virgl/compat/libsync.h
+@@ -0,0 +1,9 @@
++/* Copyright (C) 2026, The AROS Development Team. All rights reserved.
++ * AROS has no sync file descriptors. The winsys of this driver reports
++ * supports_fences = 0, so the driver core never reaches these calls. */
++#ifndef AROS_VIRGL_LIBSYNC_H
++#define AROS_VIRGL_LIBSYNC_H
++static inline int sync_wait(int fd, int timeout) { (void)fd; (void)timeout; return -1; }
++static inline int sync_merge(const char *name, int fd1, int fd2) { (void)name; (void)fd1; (void)fd2; return -1; }
++static inline int sync_accumulate(const char *name, int *fd1, int fd2) { (void)name; (void)fd1; (void)fd2; return -1; }
++#endif
+diff --git a/workbench/hidds/virgl/mmakefile.src b/workbench/hidds/virgl/mmakefile.src
+new file mode 100644
+index 00000000..ec1ff28d
+--- /dev/null
++++ b/workbench/hidds/virgl/mmakefile.src
+@@ -0,0 +1,50 @@
++# Copyright (C) 2026, The AROS Development Team. All rights reserved.
++# VirGL gallium driver for a secondary VirtIO-GPU adapter.
++# Manual build; deliberately not a workbench-hidds dependency.
++include $(SRCDIR)/config/aros.cfg
++include $(SRCDIR)/workbench/libs/mesa/mesa.cfg
++
++CUR_MESADIR = src/gallium
++CUR_GALLIUMDIR = drivers/virgl
++GALLIUM_PATH = $(top_srcdir)/$(CUR_MESADIR)
++
++include $(GALLIUM_PATH)/$(CUR_GALLIUMDIR)/Makefile.sources
++
++#MM hidd-virgl : includes hidd-gallium mesa3dgl-linklibs linklibs-libatomic linklibs-gallium_virgl
++#MM linklibs-gallium_virgl : mesa3dgl-linklibs
++
++MESA3D_VIRGL_C_SOURCES := $(filter %.c, $(C_SOURCES))
++
++VIRGL_SOURCES := \
++             $(addprefix $(GALLIUM_PATH)/drivers/virgl/,$(MESA3D_VIRGL_C_SOURCES:.c=))
++
++VIRGL_HIDD_SOURCES := \
++            virgl_init \
++            virgl_galliumclass \
++            virgl_winsys_aros \
++            virgl_transport \
++            virgl_stubs
++
++USER_INCLUDES := \
++            $(USER_INCLUDES) \
++            -iquote $(GALLIUM_PATH)/drivers \
++            -iquote $(GALLIUM_PATH)/include \
++            -iquote $(GALLIUM_PATH)/auxiliary \
++            -iquote $(SRCDIR)/$(CURDIR) -I$(SRCDIR)/$(CURDIR)/compat
++
++NOWARN_CFLAGS := $(NOWARN_MAYBE_UNINITIALIZED)
++USER_CFLAGS += $(NOWARN_CFLAGS) -Werror=implicit-function-declaration
++
++USER_LDFLAGS := \
++  -Wl,--start-group -lgallium_virgl -lcompiler -lgalliumauxiliary -lmesautil \
++  -lpthread
++ifneq ($(TARGET_LIBATOMIC),)
++USER_LDFLAGS += $(TARGET_CXX_LIBS)
++endif
++
++%build_module mmake=hidd-virgl modname=virgl modtype=hidd \
++    files="$(VIRGL_HIDD_SOURCES)" alwayscxxlink=yes uselibs="oop crtmod" usesdks="private mesa"
++
++%build_linklib mmake=linklibs-gallium_virgl libname=gallium_virgl objdir=$(top_builddir)/$(CUR_MESADIR)/$(CUR_GALLIUMDIR) files="$(VIRGL_SOURCES)" sdk=mesa
++
++%common
+diff --git a/workbench/hidds/virgl/test/glcheck.c b/workbench/hidds/virgl/test/glcheck.c
+new file mode 100644
+index 00000000..fea8258f
+--- /dev/null
++++ b/workbench/hidds/virgl/test/glcheck.c
+@@ -0,0 +1,112 @@
++/* Copyright (C) 2026, The AROS Development Team. All rights reserved.
++ * Small OpenGL check: prints the renderer, draws and reads pixels back.
++ * usage: glcheck [expected renderer substring] [frames] */
++#include <exec/types.h>
++#include <intuition/intuition.h>
++#include <devices/timer.h>
++#include <proto/exec.h>
++#include <proto/dos.h>
++#include <proto/intuition.h>
++#include <GL/gl.h>
++#include <GL/gla.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++static int pixel(int x, int y, int r, int g, int b, const char *what)
++{
++    unsigned char p[4] = {0, 0, 0, 0};
++    int ok;
++    glReadPixels(x, y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, p);
++    ok = abs(p[0] - r) <= 2 && abs(p[1] - g) <= 2 && abs(p[2] - b) <= 2;
++    printf("%s pixel(%d,%d): %u %u %u expected %d %d %d %s\n", what, x, y,
++        p[0], p[1], p[2], r, g, b, ok ? "ok" : "WRONG");
++    return ok;
++}
++
++int main(int argc, char **argv)
++{
++    static const unsigned char tex[16] = {
++        255, 0, 0, 255,   0, 255, 0, 255,
++        0, 0, 255, 255,   255, 255, 0, 255 };
++    const char *expect = argc > 1 ? argv[1] : "";
++    int frames = argc > 2 ? atoi(argv[2]) : 60;
++    struct Window *win;
++    GLAContext ctx;
++    const char *renderer;
++    GLuint texture;
++    struct DateStamp t0, t1;
++    LONG ticks;
++    int ok = 1, i;
++
++    win = OpenWindowTags(NULL, WA_Title, (IPTR)"glcheck", WA_Left, 40, WA_Top, 40,
++        WA_InnerWidth, 256, WA_InnerHeight, 256, WA_DragBar, TRUE,
++        WA_DepthGadget, TRUE, WA_Activate, FALSE, TAG_DONE);
++    if (!win) { printf("FAIL: no window\n"); return 20; }
++    ctx = glACreateContextTags(GLA_Window, (IPTR)win, GLA_DoubleBuf, TRUE,
++        GLA_RGBMode, TRUE, TAG_DONE);
++    if (!ctx) { printf("FAIL: no GL context\n"); CloseWindow(win); return 20; }
++    glAMakeCurrent(ctx);
++    renderer = (const char *)glGetString(GL_RENDERER);
++    printf("GL_RENDERER: %s\n", renderer ? renderer : "(null)");
++    printf("GL_VERSION: %s\n", (const char *)glGetString(GL_VERSION));
++    printf("GL_VENDOR: %s\n", (const char *)glGetString(GL_VENDOR));
++    if (!renderer || !strstr(renderer, expect)) ok = 0;
++
++    glViewport(0, 0, 256, 256);
++    glClearColor(0.5f, 0.0f, 0.0f, 1.0f);
++    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
++    ok = pixel(8, 8, 128, 0, 0, "clear") && ok;
++
++    glBegin(GL_TRIANGLES);
++    glColor3f(0, 1, 0);
++    glVertex2f(-0.8f, -0.8f); glVertex2f(0.8f, -0.8f); glVertex2f(0.0f, 0.8f);
++    glEnd();
++    ok = pixel(128, 100, 0, 255, 0, "triangle") && ok;
++
++    glGenTextures(1, &texture);
++    glBindTexture(GL_TEXTURE_2D, texture);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
++    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, tex);
++    glEnable(GL_TEXTURE_2D);
++    glColor3f(1, 1, 1);
++    glBegin(GL_QUADS);
++    glTexCoord2f(0, 0); glVertex2f(-1, -1);
++    glTexCoord2f(1, 0); glVertex2f( 1, -1);
++    glTexCoord2f(1, 1); glVertex2f( 1,  1);
++    glTexCoord2f(0, 1); glVertex2f(-1,  1);
++    glEnd();
++    ok = pixel(64, 64, 255, 0, 0, "texture") && ok;
++    ok = pixel(192, 64, 0, 255, 0, "texture") && ok;
++    ok = pixel(64, 192, 0, 0, 255, "texture") && ok;
++    ok = pixel(192, 192, 255, 255, 0, "texture") && ok;
++    glDisable(GL_TEXTURE_2D);
++    printf("GL_ERROR: %u\n", (unsigned)glGetError());
++    glASwapBuffers(ctx);
++
++    DateStamp(&t0);
++    for (i = 0; i < frames; i++) {
++        glClearColor(0.1f, 0.1f, 0.3f, 1.0f);
++        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
++        glLoadIdentity();
++        glRotatef(i * 6.0f, 0, 0, 1);
++        glBegin(GL_TRIANGLES);
++        glColor3f(1, 0, 0); glVertex2f(-0.8f, -0.8f);
++        glColor3f(0, 1, 0); glVertex2f(0.8f, -0.8f);
++        glColor3f(0, 0, 1); glVertex2f(0.0f, 0.8f);
++        glEnd();
++        glASwapBuffers(ctx);
++    }
++    DateStamp(&t1);
++    ticks = (t1.ds_Minute - t0.ds_Minute) * 3000 + (t1.ds_Tick - t0.ds_Tick);
++    if (frames > 0)
++        printf("frames: %d in %ld ms (%ld ms per frame)\n", frames,
++            (long)ticks * 20, (long)ticks * 20 / frames);
++
++    glAMakeCurrent(NULL);
++    glADestroyContext(ctx);
++    CloseWindow(win);
++    printf(ok ? "PASS\n" : "FAIL\n");
++    return ok ? 0 : 10;
++}
+diff --git a/workbench/hidds/virgl/virgl.conf b/workbench/hidds/virgl/virgl.conf
+new file mode 100644
+index 00000000..f9985184
+--- /dev/null
++++ b/workbench/hidds/virgl/virgl.conf
+@@ -0,0 +1,26 @@
++##begin config
++version         1.0
++residentpri     90
++libbasetype     struct IntHiddVirglBase
++basename        HiddVirgl
++classid         CLID_Hidd_Gallium_Virgl
++superclass      CLID_Hidd_Gallium
++classptr_field  sd.galliumclass
++classdatatype   struct HiddGalliumVirglData
++##end config
++
++##begin cdefprivate
++#include <hidd/gallium.h>
++#include "virgl_intern.h"
++##end cdefprivate
++
++##begin methodlist
++.interface Root
++New
++Dispose
++Get
++.interface Hidd_Gallium
++CreatePipeScreen
++DestroyPipeScreen
++DisplayResource
++##end methodlist
+diff --git a/workbench/hidds/virgl/virgl_galliumclass.c b/workbench/hidds/virgl/virgl_galliumclass.c
+new file mode 100644
+index 00000000..913933ea
+--- /dev/null
++++ b/workbench/hidds/virgl/virgl_galliumclass.c
+@@ -0,0 +1,95 @@
++/* Copyright (C) 2026, The AROS Development Team. All rights reserved. */
++#include <aros/debug.h>
++#include <proto/oop.h>
++#include <proto/exec.h>
++#include <proto/utility.h>
++#include <proto/graphics.h>
++#include <proto/cybergraphics.h>
++#include <cybergraphx/cybergraphics.h>
++#include <hidd/gallium.h>
++#include <gallium/gallium.h>
++#include "pipe/p_screen.h"
++
++#include "virgl/virgl_resource.h"
++#include "virgl/virgl_public.h"
++#include "virgl_winsys_aros.h"
++#include "virgl_intern.h"
++#define CyberGfxBase (SD(cl)->CyberGfxBase)
++#define UtilityBase (SD(cl)->UtilityBase)
++#undef HiddGalliumAttrBase
++#define HiddGalliumAttrBase (SD(cl)->hiddGalliumAB)
++OOP_Object *METHOD(HiddVirgl,Root,New)
++{
++    if(GetTagData(aHidd_Gallium_InterfaceVersion,-1,msg->attrList)!=GALLIUM_INTERFACE_VERSION)return NULL;
++    if(!avgl_device_present(&SD(cl)->manager))return NULL;
++    o=(OOP_Object*)OOP_DoSuperMethod(cl,o,(OOP_Msg)msg);
++    if(o){
++        struct HiddGalliumVirglData *d=OOP_INST_DATA(cl,o);
++        d->winsys=NULL;d->screen=NULL;
++        InitSemaphore(&d->screen_lock);
++    }
++    return o;
++}
++VOID METHOD(HiddVirgl,Root,Dispose)
++{
++    struct HiddGalliumVirglData *d=OOP_INST_DATA(cl,o);
++    /* A screen left alive by the client still owns its winsys. */
++    if(!d->screen && d->winsys)avgl_winsys_dispose(d->winsys);
++    OOP_DoSuperMethod(cl,o,(OOP_Msg)msg);
++}
++VOID METHOD(HiddVirgl,Root,Get)
++{
++    ULONG idx;
++    if(IS_GALLIUM_ATTR(msg->attrID,idx) && idx==aoHidd_Gallium_InterfaceVersion){*msg->storage=GALLIUM_INTERFACE_VERSION;return;}
++    OOP_DoSuperMethod(cl,o,(OOP_Msg)msg);
++}
++APTR METHOD(HiddVirgl,Hidd_Gallium,CreatePipeScreen)
++{
++    struct HiddGalliumVirglData *d=OOP_INST_DATA(cl,o);
++    struct pipe_screen *screen;
++    ObtainSemaphore(&d->screen_lock);
++    if(!d->winsys && !d->screen){
++        d->winsys=avgl_winsys_create(&d->winsys,&SD(cl)->manager);
++        if(d->winsys){
++            d->screen=virgl_create_screen(d->winsys,NULL);
++            if(!d->screen && d->winsys)avgl_winsys_dispose(d->winsys);
++        }
++    }
++    screen=d->screen;
++    ReleaseSemaphore(&d->screen_lock);
++    return screen;
++}
++VOID METHOD(HiddVirgl,Hidd_Gallium,DestroyPipeScreen)
++{
++    struct HiddGalliumVirglData *d=OOP_INST_DATA(cl,o);
++    ObtainSemaphore(&d->screen_lock);
++    if(d->screen && msg->screen==d->screen){
++        /* Destroys the winsys too; its destructor clears d->winsys. */
++        d->screen->destroy(d->screen);d->screen=NULL;
++    }
++    ReleaseSemaphore(&d->screen_lock);
++}
++VOID METHOD(HiddVirgl,Hidd_Gallium,DisplayResource)
++{
++    struct HiddGalliumVirglData *d=OOP_INST_DATA(cl,o);
++    struct virgl_resource *res=virgl_resource(msg->resource);
++    struct RastPort *rp;
++    APTR pixels;
++    ULONG format;
++    if(!d->winsys || !res || !res->hw_res)return;
++    switch(res->u.b.format){
++      case PIPE_FORMAT_R8G8B8A8_UNORM:case PIPE_FORMAT_R8G8B8X8_UNORM:
++      case PIPE_FORMAT_R8G8B8A8_SRGB:format=RECTFMT_RGBA;break;
++      case PIPE_FORMAT_B8G8R8A8_UNORM:case PIPE_FORMAT_B8G8R8X8_UNORM:
++      case PIPE_FORMAT_B8G8R8A8_SRGB:case PIPE_FORMAT_B8G8R8X8_SRGB:format=RECTFMT_BGRA32;break;
++      default:bug("[virgl.hidd] unsupported presentation format %u\n",res->u.b.format);return;
++    }
++    if(!avgl_read_resource(d->winsys,res->hw_res,res->u.b.width0,res->u.b.height0,res->metadata.stride[0]))return;
++    pixels=d->winsys->resource_map(d->winsys,res->hw_res);
++    if(!pixels)return;
++    rp=CreateRastPort();if(!rp)return;
++    rp->BitMap=msg->bitmap;
++    WritePixelArray(pixels,msg->srcx,msg->srcy,
++        res->metadata.stride[0],rp,msg->dstx,msg->dsty,msg->width,msg->height,format);
++    FreeRastPort(rp);
++}
+diff --git a/workbench/hidds/virgl/virgl_gpu_protocol.h b/workbench/hidds/virgl/virgl_gpu_protocol.h
+new file mode 100644
+index 00000000..c84c09cf
+--- /dev/null
++++ b/workbench/hidds/virgl/virgl_gpu_protocol.h
+@@ -0,0 +1,105 @@
++/* Copyright (C) 2026, The AROS Development Team. All rights reserved.
++ * VirtIO GPU 1.3 wire layouts for the x86_64 manual diagnostic.
++ * VirGL numeric definitions are a subset of Mesa 26.2.5 virgl_protocol.h
++ * and virgl_hw.h; their notice follows. No Linux driver code is imported.
++ */
++/*
++ * Copyright 2014, 2015 Red Hat.
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining a
++ * copy of this software and associated documentation files (the "Software"),
++ * to deal in the Software without restriction, including without limitation
++ * on the rights to use, copy, modify, merge, publish, distribute, sub
++ * license, and/or sell copies of the Software, and to permit persons to whom
++ * the Software is furnished to do so, subject to the following conditions:
++ *
++ * The above copyright notice and this permission notice (including the next
++ * paragraph) shall be included in all copies or substantial portions of the
++ * Software.
++ *
++ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++ * FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL
++ * THE AUTHOR(S) AND/OR THEIR SUPPLIERS BE LIABLE FOR ANY CLAIM,
++ * DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
++ * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
++ * USE OR OTHER DEALINGS IN THE SOFTWARE.
++ */
++#ifndef AROS_TEST_VIRTIOGPU_PROTOCOL_H
++#define AROS_TEST_VIRTIOGPU_PROTOCOL_H
++
++#include <exec/types.h>
++
++#define GPU_F_VIRGL 1ULL
++#define GPU_FLAG_FENCE 1
++#define GPU_GET_DISPLAY 0x100
++#define GPU_RESOURCE_UNREF 0x102
++#define GPU_ATTACH_BACKING 0x106
++#define GPU_DETACH_BACKING 0x107
++#define GPU_GET_CAPSET_INFO 0x108
++#define GPU_GET_CAPSET 0x109
++#define GPU_CTX_CREATE 0x200
++#define GPU_CTX_DESTROY 0x201
++#define GPU_CTX_ATTACH_RESOURCE 0x202
++#define GPU_CTX_DETACH_RESOURCE 0x203
++#define GPU_RESOURCE_CREATE_3D 0x204
++#define GPU_TRANSFER_TO_HOST_3D 0x205
++#define GPU_TRANSFER_FROM_HOST_3D 0x206
++#define GPU_SUBMIT_3D 0x207
++#define GPU_OK_NODATA 0x1100
++#define GPU_OK_DISPLAY 0x1101
++#define GPU_OK_CAPSET_INFO 0x1102
++#define GPU_OK_CAPSET 0x1103
++#define GPU_ERR_UNSPEC 0x1200
++#define GPU_ERR_INVALID_PARAMETER 0x1205
++
++
++struct gpu_header {
++    ULONG type, flags;
++    UQUAD fence;
++    ULONG context;
++    UBYTE ring, padding[3];
++};
++struct capset_request {
++    struct gpu_header header;
++    ULONG id, version;
++};
++struct capset_info {
++    struct gpu_header header;
++    ULONG id, version, size, padding;
++};
++struct gpu_rect { ULONG x, y, width, height; };
++struct gpu_display { struct gpu_rect rect; ULONG enabled, flags; };
++struct gpu_display_info {
++    struct gpu_header header;
++    struct gpu_display display[16];
++};
++
++struct render_create {
++    struct gpu_header header;
++    ULONG resource, target, format, bind, width, height, depth, array_size;
++    ULONG last_level, samples, flags, padding;
++};
++struct render_context { struct gpu_header header; ULONG length, init; char name[64]; };
++struct render_resource { struct gpu_header header; ULONG resource, padding; };
++struct render_backing {
++    struct gpu_header header;
++    ULONG resource, count;
++    UQUAD address;
++    ULONG length, padding;
++};
++struct render_transfer {
++    struct gpu_header header;
++    ULONG x, y, z, width, height, depth;
++    UQUAD offset;
++    ULONG resource, level, stride, layer_stride;
++};
++struct render_submit { struct gpu_header header; ULONG size, padding; ULONG words[512]; };
++_Static_assert(sizeof(struct render_create) == 72, "Create3D wire size");
++_Static_assert(sizeof(struct render_context) == 96, "Context wire size");
++_Static_assert(sizeof(struct render_backing) == 48, "Backing wire size");
++_Static_assert(sizeof(struct render_transfer) == 72, "Transfer wire size");
++_Static_assert(sizeof(struct gpu_header) == 24, "GPU header wire size");
++_Static_assert(sizeof(struct capset_info) == 40, "Capset info wire size");
++
++#endif
+diff --git a/workbench/hidds/virgl/virgl_init.c b/workbench/hidds/virgl/virgl_init.c
+new file mode 100644
+index 00000000..692cce47
+--- /dev/null
++++ b/workbench/hidds/virgl/virgl_init.c
+@@ -0,0 +1,33 @@
++/* Copyright (C) 2026, The AROS Development Team. All rights reserved. */
++#include <aros/symbolsets.h>
++#include <hidd/gallium.h>
++#include <proto/oop.h>
++#include <proto/exec.h>
++#include "virgl_intern.h"
++static int HiddVirgl_InitLib(LIBBASETYPEPTR LIBBASE)
++{
++    LIBBASE->sd.UtilityBase=OpenLibrary((STRPTR)"utility.library",0);
++    avgl_manager_init(&LIBBASE->sd.manager,LIBBASE->sd.UtilityBase);
++    LIBBASE->sd.CyberGfxBase=OpenLibrary((STRPTR)"cybergraphics.library",0);
++    LIBBASE->sd.hiddGalliumAB=OOP_ObtainAttrBase((STRPTR)IID_Hidd_Gallium);
++    if(LIBBASE->sd.UtilityBase && LIBBASE->sd.CyberGfxBase && LIBBASE->sd.hiddGalliumAB)return TRUE;
++    if(LIBBASE->sd.hiddGalliumAB){OOP_ReleaseAttrBase((STRPTR)IID_Hidd_Gallium);LIBBASE->sd.hiddGalliumAB=0;}
++    if(LIBBASE->sd.CyberGfxBase){CloseLibrary(LIBBASE->sd.CyberGfxBase);LIBBASE->sd.CyberGfxBase=NULL;}
++    if(LIBBASE->sd.UtilityBase){CloseLibrary(LIBBASE->sd.UtilityBase);LIBBASE->sd.UtilityBase=NULL;}
++    return FALSE;
++}
++static int HiddVirgl_ExpungeGuard(LIBBASETYPEPTR LIBBASE)
++{
++    return avgl_manager_can_expunge(&LIBBASE->sd.manager);
++}
++static int HiddVirgl_ExpungeLib(LIBBASETYPEPTR LIBBASE)
++{
++    if(LIBBASE->sd.hiddGalliumAB)OOP_ReleaseAttrBase((STRPTR)IID_Hidd_Gallium);
++    if(LIBBASE->sd.CyberGfxBase)CloseLibrary(LIBBASE->sd.CyberGfxBase);
++    if(LIBBASE->sd.UtilityBase)CloseLibrary(LIBBASE->sd.UtilityBase);
++    return TRUE;
++}
++ADD2INITLIB(HiddVirgl_InitLib,0)
++ADD2EXPUNGELIB(HiddVirgl_ExpungeGuard,100)
++ADD2EXPUNGELIB(HiddVirgl_ExpungeLib,0)
++ADD2LIBS((STRPTR)"gallium.hidd",7,static struct Library *,GalliumHiddBase);
+diff --git a/workbench/hidds/virgl/virgl_intern.h b/workbench/hidds/virgl/virgl_intern.h
+new file mode 100644
+index 00000000..6d6143ca
+--- /dev/null
++++ b/workbench/hidds/virgl/virgl_intern.h
+@@ -0,0 +1,32 @@
++/* Copyright (C) 2026, The AROS Development Team. All rights reserved. */
++#ifndef AROS_VIRGL_INTERN_H
++#define AROS_VIRGL_INTERN_H
++#include <stdint.h>
++#include <stdbool.h>
++#include <exec/libraries.h>
++#include <exec/semaphores.h>
++#include <oop/oop.h>
++#include <hidd/gallium.h>
++#include "virgl_transport.h"
++#include LC_LIBDEFS_FILE
++#define CLID_Hidd_Gallium_Virgl "hidd.gallium.virgl"
++struct virgl_winsys;
++struct pipe_screen;
++/* One object serves one GL context: one winsys and one screen. The screen
++ * owns the winsys once created and destroys it together with itself. */
++struct HiddGalliumVirglData {
++    struct virgl_winsys *winsys;
++    struct pipe_screen *screen;
++    struct SignalSemaphore screen_lock;
++};
++struct virglstaticdata {
++    struct avgl_manager manager;
++    OOP_Class *galliumclass;
++    OOP_AttrBase hiddGalliumAB;
++    struct Library *CyberGfxBase, *UtilityBase;
++};
++LIBBASETYPE { struct Library LibNode; struct virglstaticdata sd; };
++#define METHOD(base,id,name) base ## __ ## id ## __ ## name (OOP_Class *cl,OOP_Object *o,struct p ## id ## _ ## name *msg)
++#define BASE(lib) ((LIBBASETYPEPTR)(lib))
++#define SD(cl) (&BASE(cl->UserData)->sd)
++#endif
+diff --git a/workbench/hidds/virgl/virgl_native.h b/workbench/hidds/virgl/virgl_native.h
+new file mode 100644
+index 00000000..4645aa12
+--- /dev/null
++++ b/workbench/hidds/virgl/virgl_native.h
+@@ -0,0 +1,28 @@
++/* CRT-free native metadata and memory operations. UtilityBase is borrowed
++ * from the native module root, which is pinned through winsys destruction. */
++#ifndef AROS_VIRGL_NATIVE_H
++#define AROS_VIRGL_NATIVE_H
++#include <stddef.h>
++#include <exec/libraries.h>
++#include <exec/memory.h>
++#include <proto/exec.h>
++#include <proto/utility.h>
++static inline APTR avgl_native_alloc(size_t bytes)
++{
++    if (!bytes || bytes > (size_t)(~(ULONG)0)) return NULL;
++    return AllocVec((ULONG)bytes, MEMF_ANY | MEMF_CLEAR);
++}
++static inline void avgl_native_clear(struct Library *UtilityBase, APTR ptr, ULONG bytes)
++{
++    SetMem(ptr, 0, bytes);
++}
++static inline APTR avgl_native_grow(APTR old, size_t old_bytes, size_t new_bytes)
++{
++    if (new_bytes < old_bytes) return NULL;
++    APTR next = avgl_native_alloc(new_bytes);
++    if (!next) return NULL;
++    if (old && old_bytes) CopyMem(old, next, old_bytes);
++    FreeVec(old);
++    return next;
++}
++#endif
+diff --git a/workbench/hidds/virgl/virgl_stubs.c b/workbench/hidds/virgl/virgl_stubs.c
+new file mode 100644
+index 00000000..a1e94906
+--- /dev/null
++++ b/workbench/hidds/virgl/virgl_stubs.c
+@@ -0,0 +1,9 @@
++/* Copyright (C) 2026, The AROS Development Team. All rights reserved.
++ * The driver core reads driconf options only when a configuration is passed
++ * to virgl_create_screen(). This module passes none, and the Mesa build of
++ * this tree has no xmlconfig, so the two lookups only have to link. */
++struct driOptionCache;
++unsigned char driQueryOptionb(const struct driOptionCache *cache, const char *name)
++{ (void)cache; (void)name; return 0; }
++int driQueryOptioni(const struct driOptionCache *cache, const char *name)
++{ (void)cache; (void)name; return 0; }
+diff --git a/workbench/hidds/virgl/virgl_transport.c b/workbench/hidds/virgl/virgl_transport.c
+new file mode 100644
+index 00000000..de2a1344
+--- /dev/null
++++ b/workbench/hidds/virgl/virgl_transport.c
+@@ -0,0 +1,601 @@
++/* Copyright (C) 2026, The AROS Development Team. All rights reserved.
++ * Experimental x86_64 synchronous PCI transport, derived from the tested
++ * manual diagnostic. No public API or default system driver is installed.
++ */
++#include <exec/memory.h>
++#include <dos/dos.h>
++#include <utility/hooks.h>
++#include <proto/exec.h>
++#include <proto/dos.h>
++#include <proto/oop.h>
++#include <aros/debug.h>
++
++#include <stddef.h>
++#include "virgl_transport.h"
++#include "virgl_native.h"
++struct avgl_device {
++    struct Library *utility_base;
++    OOP_Object *device, *driver;
++    unsigned matches;
++    APTR bars[6];
++    ULONG bar_sizes[6];
++    struct window windows[5];
++    ULONG notify_multiplier;
++    volatile struct virtio_pci_common_cfg *common;
++    volatile UBYTE *config;
++    volatile UBYTE *isr;
++    volatile UWORD *notify;
++    APTR dma;
++    OOP_Object *pci;
++    struct avgl_allocation *allocations;
++    UBYTE caps[8192];
++    ULONG caps_size;
++    BOOL failed, attr_owned;
++    struct SignalSemaphore queue;
++    ULONG next_context, next_resource;
++    STRPTR owner_name;
++    UQUAD fence;
++    ULONG request_dma_length, response_dma_length;
++    BOOL request_dma_active, response_dma_active;
++    volatile struct virtq_desc *desc;
++    volatile struct virtq_avail *avail;
++    volatile struct virtq_used *used;
++    UWORD last_used, command;
++    BOOL owned, changed;
++};
++OOP_AttrBase HiddPCIDeviceAttrBase;
++#define GPU_ID 0x1050
++#define PCI_COMMAND 4
++#define PCI_MEMORY 2
++#define PCI_MASTER 4
++#define PCI_INTX_DISABLE 0x400
++#define QUEUE_SIZE 8
++#define RING_BYTES 4096
++#define REQUEST_OFFSET 8192
++#define RESPONSE_OFFSET (REQUEST_OFFSET + 512 * 1024)
++#define RESPONSE_BYTES 8192
++#define DMA_BYTES (RESPONSE_OFFSET + RESPONSE_BYTES)
++#define POLL_TICKS 500
++#define SPIN_LOOPS 200000
++struct avgl_allocation {
++    struct avgl_allocation *next;
++    APTR pointer;
++    ULONG bytes, context, dma_length, dma_flags;
++    BOOL dma_active;
++};
++static void finish_backing_dma(struct avgl_allocation *a)
++{
++    if(a->dma_active){
++        ULONG bytes=a->dma_length;
++        CachePostDMA(a->pointer,&bytes,a->dma_flags);
++        a->dma_active=FALSE;
++    }
++}
++static IPTR attr(OOP_Object *device, OOP_AttrID id)
++{
++    IPTR value = 0;
++    OOP_GetAttr(device, id, &value);
++    return value;
++}
++
++AROS_UFH3(void, enumerate_gpu,
++    AROS_UFHA(struct Hook *, hook, A0),
++    AROS_UFHA(OOP_Object *, device, A2),
++    AROS_UFHA(APTR, message, A1))
++{
++    AROS_USERFUNC_INIT
++    struct avgl_device *s = hook->h_Data;
++    (void)message;
++    if (attr(device, aHidd_PCIDevice_VendorID) == VIRTIO_PCI_VENDOR_ID &&
++        attr(device, aHidd_PCIDevice_ProductID) == GPU_ID &&
++        attr(device, aHidd_PCIDevice_Class) == 3 &&
++        attr(device, aHidd_PCIDevice_SubClass) == 0x80) {
++        s->device = device;
++        s->matches++;
++    }
++    AROS_USERFUNC_EXIT
++}
++
++static BOOL capabilities(struct avgl_device *s)
++{
++    UBYTE seen[256] = {0};
++    ULONG cur = HIDD_PCIDevice_ReadConfigByte(s->device, 0x34);
++    unsigned count = 0;
++    while (cur) {
++        UBYTE next, id;
++        if (cur < 0x40 || cur > 0xfc || (cur & 3) || seen[cur] || ++count > 48)
++            return FALSE;
++        seen[cur] = 1;
++        id = HIDD_PCIDevice_ReadConfigByte(s->device, cur);
++        next = HIDD_PCIDevice_ReadConfigByte(s->device, cur + 1);
++        if (id == VIRTIO_PCI_CAP_VENDOR_CFG) {
++            UBYTE type, bar;
++            UBYTE length = HIDD_PCIDevice_ReadConfigByte(s->device, cur + 2);
++            if (length < 16 || cur + length > 256) return FALSE;
++            type = HIDD_PCIDevice_ReadConfigByte(s->device, cur + 3);
++            bar = HIDD_PCIDevice_ReadConfigByte(s->device, cur + 4);
++            if (type >= 1 && type <= 4) {
++                struct window *w = &s->windows[type];
++                if (bar > 5 || w->found) return FALSE;
++                w->bar = bar;
++                w->offset = HIDD_PCIDevice_ReadConfigLong(s->device, cur + 8);
++                w->length = HIDD_PCIDevice_ReadConfigLong(s->device, cur + 12);
++                w->found = TRUE;
++                D(bug("cap type=%u bar=%u offset=%lu length=%lu\n", type, bar,
++                    (unsigned long)w->offset, (unsigned long)w->length));
++                if (type == VIRTIO_PCI_CAP_NOTIFY_CFG) {
++                    if (length < 20) return FALSE;
++                    s->notify_multiplier = HIDD_PCIDevice_ReadConfigLong(s->device, cur + 16);
++                }
++            }
++        }
++        cur = next;
++    }
++    return s->windows[1].found && s->windows[2].found &&
++           s->windows[3].found && s->windows[4].found;
++}
++
++static BOOL map_windows(struct avgl_device *s)
++{
++    static const ULONG bases[] = { aoHidd_PCIDevice_Base0, aoHidd_PCIDevice_Base1,
++        aoHidd_PCIDevice_Base2, aoHidd_PCIDevice_Base3, aoHidd_PCIDevice_Base4,
++        aoHidd_PCIDevice_Base5 };
++    static const ULONG sizes[] = { aoHidd_PCIDevice_Size0, aoHidd_PCIDevice_Size1,
++        aoHidd_PCIDevice_Size2, aoHidd_PCIDevice_Size3, aoHidd_PCIDevice_Size4,
++        aoHidd_PCIDevice_Size5 };
++    unsigned i;
++    for (i = 1; i <= 4; i++) {
++        struct window *w = &s->windows[i];
++        IPTR base = attr(s->device, HiddPCIDeviceAttrBase + bases[w->bar]);
++        IPTR size = attr(s->device, HiddPCIDeviceAttrBase + sizes[w->bar]);
++        ULONG raw = HIDD_PCIDevice_ReadConfigLong(s->device, 0x10 + 4 * w->bar);
++        if (!base || (raw & 1) || !size || size > 16 * 1024 * 1024 ||
++            w->offset > size || w->length > size - w->offset) return FALSE;
++        if (!s->bars[w->bar]) {
++            APTR mapped = HIDD_PCIDriver_MapPCI(s->driver, (APTR)(base & ~(IPTR)15), size);
++            if (!mapped || mapped == (APTR)-1) return FALSE;
++            s->bars[w->bar] = mapped;
++            s->bar_sizes[w->bar] = size;
++        }
++    }
++    if (s->windows[1].length < sizeof(*s->common) || s->windows[3].length < 1 ||
++        s->windows[4].length < 16 || (s->windows[1].offset & 3) ||
++        (s->windows[4].offset & 3)) return FALSE;
++    s->common = (APTR)((UBYTE *)s->bars[s->windows[1].bar] + s->windows[1].offset);
++    s->config = (APTR)((UBYTE *)s->bars[s->windows[4].bar] + s->windows[4].offset);
++    s->isr = (APTR)((UBYTE *)s->bars[s->windows[3].bar] + s->windows[3].offset);
++    return TRUE;
++}
++
++static BOOL reset(struct avgl_device *s)
++{
++    unsigned i;
++    s->common->device_status = 0;
++    __sync_synchronize();
++    for (i = 0; i < POLL_TICKS; i++) {
++        if (s->common->device_status == 0) return TRUE;
++        Delay(1);
++    }
++    return FALSE;
++}
++
++static UQUAD device_dma_address(struct avgl_device *s, APTR ptr)
++{
++    APTR address = HIDD_PCIDriver_CPUtoPCI(s->driver, ptr);
++    return !address || address == (APTR)-1 ? ~(UQUAD)0 : (UQUAD)(IPTR)address;
++}
++
++static BOOL setup_queue(struct avgl_device *s, UWORD id)
++{
++    UBYTE *base = (UBYTE *)s->dma + id * RING_BYTES;
++    volatile struct virtq_avail *avail = (APTR)(base + 256);
++    struct window *w = &s->windows[2];
++    UQUAD offset, desc = device_dma_address(s, base), avail_dma = device_dma_address(s, base + 256);
++    UQUAD used = device_dma_address(s, base + 512);
++    if (!desc || desc == ~(UQUAD)0 || !avail_dma || avail_dma == ~(UQUAD)0 ||
++        !used || used == ~(UQUAD)0) return FALSE;
++    s->common->queue_select = id;
++    __sync_synchronize();
++    if (s->common->queue_size < QUEUE_SIZE || s->common->queue_enable) return FALSE;
++    s->common->queue_size = QUEUE_SIZE;
++    s->common->queue_msix_vector = 0xffff;
++    s->common->queue_desc = desc;
++    s->common->queue_driver = avail_dma;
++    s->common->queue_device = used;
++    avail->flags = VIRTQ_AVAIL_F_NO_INTERRUPT;
++    offset = (UQUAD)s->common->queue_notify_off * s->notify_multiplier;
++    if (((w->offset + offset) & 1) || offset > w->length || w->length - offset < sizeof(UWORD)) return FALSE;
++    if (!id) s->notify = (APTR)((UBYTE *)s->bars[w->bar] + w->offset + offset);
++    __sync_synchronize();
++    s->common->queue_enable = 1;
++    return TRUE;
++}
++
++/* Before publication, after a valid used-ring completion, or after successful
++ * physical reset only. A lost completion keeps these registrations in root
++ * quarantine together with the DMA allocation. */
++static void finish_queue_dma(struct avgl_device *s)
++{
++    ULONG length;
++    if(s->response_dma_active){
++        length=s->response_dma_length;
++        CachePostDMA((UBYTE*)s->dma+RESPONSE_OFFSET,&length,0);
++        s->response_dma_active=FALSE;
++    }
++    if(s->request_dma_active){
++        length=s->request_dma_length;
++        CachePostDMA((UBYTE*)s->dma+REQUEST_OFFSET,&length,DMA_ReadFromRAM);
++        s->request_dma_active=FALSE;
++    }
++}
++
++static BOOL raw_command(struct avgl_device *s, const void *input, ULONG req_len,
++                    ULONG expected, ULONG minimum, ULONG *received, BOOL fenced)
++{
++    struct gpu_header *req = (APTR)((UBYTE *)s->dma + REQUEST_OFFSET);
++    struct gpu_header *resp = (APTR)((UBYTE *)s->dma + RESPONSE_OFFSET);
++    ULONG type, len, i;
++    UQUAD request_address, response_address;
++    UWORD index;
++    if(s->request_dma_active || s->response_dma_active){s->failed=TRUE;return FALSE;}
++    if (req_len < sizeof(*req) || req_len > RESPONSE_OFFSET - REQUEST_OFFSET)
++        return FALSE;
++    request_address=device_dma_address(s,req);
++    response_address=device_dma_address(s,resp);
++    if(!request_address || request_address==~(UQUAD)0 ||
++        !response_address || response_address==~(UQUAD)0)return FALSE;
++    CopyMem(input, req, req_len);
++    avgl_native_clear(s->utility_base, resp, RESPONSE_BYTES);
++    type = req->type;
++    if (fenced) {
++        if(s->fence==~(UQUAD)0)return FALSE;
++        req->flags = GPU_FLAG_FENCE; req->fence = ++s->fence;
++    }
++    len = req_len;
++    if (!CachePreDMA(req, &len, DMA_ReadFromRAM)) return FALSE;
++    s->request_dma_length=len;s->request_dma_active=TRUE;
++    if(len<req_len){finish_queue_dma(s);return FALSE;}
++    len = RESPONSE_BYTES;
++    if (!CachePreDMA(resp, &len, 0)){finish_queue_dma(s);return FALSE;}
++    s->response_dma_length=len;s->response_dma_active=TRUE;
++    if(len<RESPONSE_BYTES){finish_queue_dma(s);return FALSE;}
++    s->desc[0].addr = request_address;
++    s->desc[0].len = req_len;
++    s->desc[0].flags = VIRTQ_DESC_F_NEXT;
++    s->desc[0].next = 1;
++    s->desc[1].addr = response_address;
++    s->desc[1].len = RESPONSE_BYTES;
++    s->desc[1].flags = VIRTQ_DESC_F_WRITE;
++    s->desc[1].next = 0;
++    index = s->avail->idx;
++    s->avail->ring[index % QUEUE_SIZE] = 0;
++    __sync_synchronize();
++    s->avail->idx = index + 1;
++    __sync_synchronize();
++    *s->notify = 0;
++    /* The host usually answers within microseconds; a timer tick is 20 ms.
++     * Look at the ring for a short while before giving the CPU away. */
++    for (i = 0; i < SPIN_LOOPS; i++) {
++        __sync_synchronize();
++        if (s->used->idx != s->last_used) break;
++    }
++    for (i = 0; i < POLL_TICKS; i++) {
++        __sync_synchronize();
++        if (s->used->idx != s->last_used) break;
++        if (SetSignal(0, 0) & SIGBREAKF_CTRL_C) break;
++        Delay(1);
++    }
++    if (s->used->idx == s->last_used) {
++        bug("FAIL: command 0x%lx timed out\n", (unsigned long)type);
++        s->failed=TRUE;return FALSE;
++    }
++    __sync_synchronize();
++    *received = s->used->ring[s->last_used % QUEUE_SIZE].len;
++    if (s->used->idx != (UWORD)(s->last_used + 1) ||
++        s->used->ring[s->last_used % QUEUE_SIZE].id != 0) {s->failed=TRUE;return FALSE;}
++    s->last_used++;
++    finish_queue_dma(s);
++    (void)*s->isr;
++    if (*received < sizeof(*resp) || *received > RESPONSE_BYTES ||
++        (fenced && (!(resp->flags & GPU_FLAG_FENCE) || resp->fence != s->fence))) {
++        s->failed=TRUE;return FALSE;
++    }
++    /* A complete, fenced protocol error is scoped to the operation. A lost
++     * or malformed completion instead poisons this physical queue for all. */
++    if (resp->type >= GPU_ERR_UNSPEC && resp->type <= GPU_ERR_INVALID_PARAMETER) {
++        bug("[virgl] rejected command 0x%lx response=0x%lx\n",
++            (unsigned long)type,(unsigned long)resp->type);
++        return FALSE;
++    }
++    if (*received < minimum || resp->type != expected) {
++        s->failed=TRUE;return FALSE;
++    }
++    return TRUE;
++}
++
++static BOOL query(struct avgl_device *s, ULONG type, ULONG a, ULONG b,
++                  ULONG expected, ULONG minimum, ULONG *received)
++{
++    struct capset_request req = {0};
++    req.header.type = type; req.id = a; req.version = b;
++    return raw_command(s, &req, type == GPU_GET_DISPLAY ? sizeof(req.header) : sizeof(req),
++                   expected, minimum, received, FALSE);
++}
++
++
++/* Failure retains the entire device: BARs, PCI object/claim, attribute base,
++ * queue DMA and backing registry. Never leave dangling DMA ownership. */
++static BOOL device_close(struct avgl_device *s)
++{
++    unsigned i;
++    if (s->changed && !reset(s)) {
++        s->failed=TRUE;
++        bug("[virgl] reset failed; complete device quarantined until reboot\n");
++        return FALSE;
++    }
++    finish_queue_dma(s);
++    if (s->owned) HIDD_PCIDevice_WriteConfigWord(s->device,PCI_COMMAND,s->command);
++    while (s->allocations) {
++        struct avgl_allocation *a=s->allocations;s->allocations=a->next;
++        finish_backing_dma(a);
++        HIDD_PCIDriver_FreePCIMem(s->driver,a->pointer);FreeVec(a);
++    }
++    if (s->dma) HIDD_PCIDriver_FreePCIMem(s->driver,s->dma);
++    for (i=0;i<6;i++) if(s->bars[i])
++        HIDD_PCIDriver_UnmapPCI(s->driver,s->bars[i],s->bar_sizes[i]);
++    if(s->owned)HIDD_PCIDevice_Release(s->device);
++    FreeVec(s->owner_name);
++    if(s->pci)OOP_DisposeObject(s->pci);
++    if(s->attr_owned){OOP_ReleaseAttrBase(IID_Hidd_PCIDevice);HiddPCIDeviceAttrBase=0;}
++    return TRUE;
++}
++
++static BOOL device_open(struct avgl_device *s, struct Library *utility_base)
++{
++    struct Hook hook = { .h_Entry = (APTR)enumerate_gpu, .h_Data = s };
++    struct TagItem requirements[] = {{tHidd_PCI_VendorID, VIRTIO_PCI_VENDOR_ID},{TAG_DONE,0}};
++    UQUAD have, wanted;
++    ULONG cap_count, i, bytes;
++    avgl_native_clear(utility_base, s, sizeof(*s));
++    s->utility_base = utility_base;
++    InitSemaphore(&s->queue);
++    HiddPCIDeviceAttrBase = OOP_ObtainAttrBase(IID_Hidd_PCIDevice);
++    if (!HiddPCIDeviceAttrBase) return FALSE;
++    s->attr_owned=TRUE;
++    s->pci = OOP_NewObject(NULL, CLID_Hidd_PCI, NULL);
++    if (!s->pci) goto fail;
++    HIDD_PCI_EnumDevices(s->pci, &hook, requirements);
++    if (s->matches != 1) { bug("[virgl] need one secondary GPU, got %u\n",s->matches); goto fail; }
++    s->owner_name = AllocVec(80, MEMF_ANY);
++    if (!s->owner_name) goto fail;
++    CopyMem("virgl.hidd", s->owner_name, sizeof("virgl.hidd"));
++    if (HIDD_PCIDevice_Obtain(s->device,s->owner_name)) { bug("[virgl] device busy\n"); goto fail; }
++    s->owned = TRUE;
++    s->command = HIDD_PCIDevice_ReadConfigWord(s->device,PCI_COMMAND);
++    s->driver = (APTR)attr(s->device,aHidd_PCIDevice_Driver);
++    if (!s->driver || !capabilities(s)) goto fail;
++    HIDD_PCIDevice_WriteConfigWord(s->device,PCI_COMMAND,s->command|PCI_MEMORY);
++    if (!map_windows(s) || s->common->device_status != 0) goto fail;
++    HIDD_PCIDevice_WriteConfigWord(s->device,PCI_COMMAND,s->command|PCI_MEMORY|PCI_MASTER|PCI_INTX_DISABLE);
++    s->changed = TRUE;
++    if (!reset(s)) goto fail;
++    s->common->device_status = VIRTIO_CONFIG_S_ACKNOWLEDGE|VIRTIO_CONFIG_S_DRIVER;
++    s->common->device_feature_select=0; __sync_synchronize(); have=s->common->device_feature;
++    s->common->device_feature_select=1; __sync_synchronize(); have|=(UQUAD)s->common->device_feature<<32;
++    wanted=(1ULL<<VIRTIO_F_VERSION_1)|GPU_F_VIRGL;
++    if ((have&wanted)!=wanted) goto fail;
++    s->common->guest_feature_select=0; s->common->guest_feature=(ULONG)wanted;
++    s->common->guest_feature_select=1; s->common->guest_feature=(ULONG)(wanted>>32);
++    __sync_synchronize(); s->common->device_status|=VIRTIO_CONFIG_S_FEATURES_OK;
++    __sync_synchronize(); if (!(s->common->device_status&VIRTIO_CONFIG_S_FEATURES_OK)) goto fail;
++    cap_count=*(volatile ULONG*)(s->config+12);
++    if (!cap_count || cap_count>16 || s->common->num_queues<2) goto fail;
++    s->dma=HIDD_PCIDriver_AllocPCIMem(s->driver,DMA_BYTES);
++    if (!s->dma) goto fail;
++    avgl_native_clear(s->utility_base, s->dma, DMA_BYTES); s->desc=s->dma;
++    s->avail=(APTR)((UBYTE*)s->dma+256); s->used=(APTR)((UBYTE*)s->dma+512);
++    if (!setup_queue(s,0)||!setup_queue(s,1)) goto fail;
++    s->common->device_status|=VIRTIO_CONFIG_S_DRIVER_OK;
++    /* Legacy capset1 deliberately excludes blob/fence-fd features in this prototype. */
++    for (i=0;i<cap_count;i++) {
++        struct capset_info *info; ULONG version,size;
++        if (!query(s,GPU_GET_CAPSET_INFO,i,0,GPU_OK_CAPSET_INFO,sizeof(*info),&bytes)) goto fail;
++        info=(APTR)((UBYTE*)s->dma+RESPONSE_OFFSET);
++        if (info->id!=1) continue;
++        version=info->version; size=info->size;
++        if (!size||size>sizeof(s->caps)||size>RESPONSE_BYTES-sizeof(struct gpu_header)) goto fail;
++        if (!query(s,GPU_GET_CAPSET,1,version,GPU_OK_CAPSET,size+sizeof(struct gpu_header),&bytes)) goto fail;
++        CopyMem((UBYTE*)s->dma+RESPONSE_OFFSET+sizeof(struct gpu_header),s->caps,size);
++        s->caps_size=size; break;
++    }
++    if (!s->caps_size) goto fail;
++    D(bug("[virgl] transport ready, capset1=%lu bytes\n",(unsigned long)s->caps_size));
++    return TRUE;
++ fail:
++    return FALSE;
++}
++
++/* Cheap check used by the class constructor: is there exactly one secondary
++ * VirtIO-GPU adapter? Does not touch the device. */
++BOOL avgl_device_present(struct avgl_manager *m)
++{
++    struct avgl_device probe;
++    struct Hook hook = { .h_Entry = (APTR)enumerate_gpu, .h_Data = &probe };
++    struct TagItem requirements[] = {{tHidd_PCI_VendorID, VIRTIO_PCI_VENDOR_ID},{TAG_DONE,0}};
++    OOP_Object *pci;
++    BOOL found = FALSE, owned = FALSE;
++    ObtainSemaphore(&m->mutex);
++    if (m->device) { ReleaseSemaphore(&m->mutex); return TRUE; }
++    probe.device = NULL; probe.matches = 0;
++    if (!HiddPCIDeviceAttrBase) {
++        HiddPCIDeviceAttrBase = OOP_ObtainAttrBase(IID_Hidd_PCIDevice);
++        owned = TRUE;
++    }
++    if (HiddPCIDeviceAttrBase) {
++        pci = OOP_NewObject(NULL, CLID_Hidd_PCI, NULL);
++        if (pci) {
++            HIDD_PCI_EnumDevices(pci, &hook, requirements);
++            found = probe.matches == 1;
++            OOP_DisposeObject(pci);
++        }
++        if (owned) { OOP_ReleaseAttrBase(IID_Hidd_PCIDevice); HiddPCIDeviceAttrBase = 0; }
++    }
++    ReleaseSemaphore(&m->mutex);
++    return found;
++}
++void avgl_manager_init(struct avgl_manager *m, struct Library *utility_base)
++{
++    InitSemaphore(&m->mutex);m->utility_base=utility_base;m->initialized=TRUE;
++}
++BOOL avgl_manager_can_expunge(struct avgl_manager *m)
++{
++    BOOL ok;
++    if(!m->initialized)return TRUE;
++    ObtainSemaphore(&m->mutex);ok=!m->device && !m->references;ReleaseSemaphore(&m->mutex);
++    return ok;
++}
++BOOL avgl_healthy(struct avgl_transport *s)
++{
++    BOOL ok;
++    if(!s->device || s->failed)return FALSE;
++    ObtainSemaphore(&s->device->queue);ok=!s->device->failed;ReleaseSemaphore(&s->device->queue);
++    return ok;
++}
++BOOL avgl_command(struct avgl_transport *s,const void *input,ULONG bytes,
++    ULONG expected,ULONG minimum,ULONG *received,BOOL fenced)
++{
++    BOOL ok;
++    if(!s->device || s->failed)return FALSE;
++    ObtainSemaphore(&s->device->queue);
++    ok=!s->device->failed && raw_command(s->device,input,bytes,expected,minimum,received,fenced);
++    if(ok && ((const struct gpu_header *)input)->type==GPU_RESOURCE_CREATE_3D)s->resources_live++;
++    ReleaseSemaphore(&s->device->queue);return ok;
++}
++BOOL avgl_cleanup_command(struct avgl_transport *s,const void *input,ULONG bytes)
++{
++    BOOL ok;ULONG received;
++    if(!s->device)return FALSE;
++    ObtainSemaphore(&s->device->queue);
++    ok=!s->device->failed && raw_command(s->device,input,bytes,GPU_OK_NODATA,
++        sizeof(struct gpu_header),&received,TRUE);
++    if(ok && ((const struct gpu_header *)input)->type==GPU_RESOURCE_UNREF && s->resources_live)s->resources_live--;
++    ReleaseSemaphore(&s->device->queue);return ok;
++}
++ULONG avgl_resource_id(struct avgl_transport *s)
++{
++    ULONG id=0;struct avgl_device *d=s->device;
++    ObtainSemaphore(&d->queue);
++    if(!s->failed && !d->failed && d->next_resource!=~(ULONG)0)id=++d->next_resource;
++    ReleaseSemaphore(&d->queue);return id;
++}
++UQUAD avgl_dma_address(struct avgl_transport *s,APTR pointer)
++{ return device_dma_address(s->device,pointer); }
++APTR avgl_alloc(struct avgl_transport *s,ULONG bytes)
++{
++    struct avgl_device *d=s->device;struct avgl_allocation *a=NULL;APTR result=NULL;
++    if(!bytes || bytes>32*1024*1024 || s->failed)return NULL;
++    ObtainSemaphore(&d->queue);
++    if(d->failed)goto done;
++    a=avgl_native_alloc(sizeof(*a));if(!a)goto done;
++    a->bytes=bytes;a->context=s->context;
++    a->pointer=HIDD_PCIDriver_AllocPCIMem(d->driver,bytes);
++    if(!a->pointer){FreeVec(a);goto done;}
++    avgl_native_clear(d->utility_base,a->pointer,bytes);
++    a->next=d->allocations;d->allocations=a;result=a->pointer;
++done:
++    ReleaseSemaphore(&d->queue);return result;
++}
++void avgl_free(struct avgl_transport *s,APTR pointer)
++{
++    struct avgl_device *d=s->device;struct avgl_allocation **a;
++    if(!pointer)return;
++    ObtainSemaphore(&d->queue);a=&d->allocations;
++    if(!d->failed){
++        while(*a && (*a)->pointer!=pointer)a=&(*a)->next;
++        if(*a && (*a)->context==s->context && !(*a)->dma_active){struct avgl_allocation *old=*a;*a=old->next;
++            HIDD_PCIDriver_FreePCIMem(d->driver,old->pointer);FreeVec(old);}
++    }
++    ReleaseSemaphore(&d->queue);
++}
++/* Registration belongs to root backing, so a lost command cannot outlive it. */
++BOOL avgl_backing_begin(struct avgl_transport *s,APTR pointer,ULONG flags)
++{
++    struct avgl_device *d=s->device;struct avgl_allocation *a;BOOL ok=FALSE;
++    ObtainSemaphore(&d->queue);
++    if(s->failed || d->failed)goto done;
++    for(a=d->allocations;a && a->pointer!=pointer;a=a->next){}
++    if(!a || a->context!=s->context || a->dma_active)goto done;
++    a->dma_length=a->bytes;a->dma_flags=flags;
++    if(!CachePreDMA(pointer,&a->dma_length,flags))goto done;
++    a->dma_active=TRUE;
++    if(a->dma_length<a->bytes){finish_backing_dma(a);goto done;}
++    ok=TRUE;
++done:
++    ReleaseSemaphore(&d->queue);return ok;
++}
++void avgl_backing_end(struct avgl_transport *s,APTR pointer)
++{
++    struct avgl_device *d=s->device;struct avgl_allocation *a;
++    ObtainSemaphore(&d->queue);
++    /* Failure may mean a published request still accesses backing. */
++    if(!d->failed){
++        for(a=d->allocations;a && a->pointer!=pointer;a=a->next){}
++        if(a && a->context==s->context)finish_backing_dma(a);
++    }
++    ReleaseSemaphore(&d->queue);
++}
++/* Manager -> queue. Ordinary work takes winsys -> queue only. */
++BOOL avgl_close(struct avgl_transport *s)
++{
++    struct avgl_manager *m=s->manager;struct avgl_device *d=s->device;
++    BOOL safe=TRUE;
++    if(!d)return TRUE;
++    ObtainSemaphore(&m->mutex);ObtainSemaphore(&d->queue);
++    /* Evidence before final reset: reset must not mask client leakage. */
++    ULONG allocations=0,bytes=0,dma=0;
++    for(struct avgl_allocation *a=d->allocations;a;a=a->next)
++        if(a->context==s->context){allocations++;bytes+=a->bytes;if(a->dma_active)dma++;}
++    bug("[virgl] close ownership ctx=%lu resources=%lu allocations=%lu bytes=%lu dma=%lu refs=%lu device_failed=%lu\n",
++        (unsigned long)s->context,(unsigned long)s->resources_live,
++        (unsigned long)allocations,(unsigned long)bytes,(unsigned long)dma,
++        (unsigned long)m->references,(unsigned long)d->failed);
++    if(s->context_created && !d->failed){
++        ULONG received;struct gpu_header req={.type=GPU_CTX_DESTROY,.context=s->context};
++        raw_command(d,&req,sizeof(req),GPU_OK_NODATA,sizeof(req),&received,TRUE);
++    }
++    s->context_created=FALSE;
++    ReleaseSemaphore(&d->queue);
++    if(--m->references==0){
++        safe=device_close(d);
++        if(safe){m->device=NULL;FreeVec(d);}
++    }
++    s->device=NULL;ReleaseSemaphore(&m->mutex);return safe;
++}
++BOOL avgl_open(struct avgl_transport *s,struct avgl_manager *m)
++{
++    struct avgl_device *d;BOOL ok=FALSE;ULONG received;
++    struct render_context req={.header.type=GPU_CTX_CREATE,.length=10,.name="AROS VirGL"};
++    avgl_native_clear(m->utility_base,s,sizeof(*s));s->manager=m;s->utility_base=m->utility_base;
++    ObtainSemaphore(&m->mutex);
++    d=m->device;
++    if(!d){
++        d=avgl_native_alloc(sizeof(*d));if(!d)goto done;
++        m->device=d;
++        if(!device_open(d,m->utility_base)){
++            if(device_close(d)){m->device=NULL;FreeVec(d);}
++            goto done;
++        }
++    }
++    ObtainSemaphore(&d->queue);
++    if(d->failed || d->next_context==~(ULONG)0 || m->references==~(ULONG)0)goto unlock;
++    req.header.context=++d->next_context;
++    if(!raw_command(d,&req,sizeof(req),GPU_OK_NODATA,sizeof(struct gpu_header),&received,TRUE))goto unlock;
++    s->device=d;s->context=req.header.context;s->context_created=TRUE;
++    CopyMem(d->caps,s->caps,d->caps_size);s->caps_size=d->caps_size;
++    m->references++;ok=TRUE;
++unlock:
++    ReleaseSemaphore(&d->queue);
++    if(!ok && !m->references && device_close(d)){m->device=NULL;FreeVec(d);}
++done:
++    ReleaseSemaphore(&m->mutex);return ok;
++}
+diff --git a/workbench/hidds/virgl/virgl_transport.h b/workbench/hidds/virgl/virgl_transport.h
+new file mode 100644
+index 00000000..7f8aa1be
+--- /dev/null
++++ b/workbench/hidds/virgl/virgl_transport.h
+@@ -0,0 +1,48 @@
++/* Copyright (C) 2026, The AROS Development Team. All rights reserved. */
++#ifndef AROS_VIRGL_TRANSPORT_H
++#define AROS_VIRGL_TRANSPORT_H
++#include <exec/types.h>
++#include <exec/libraries.h>
++#include <exec/semaphores.h>
++#include <hidd/pci.h>
++#include "virgl_virtio.h"
++#include "virgl_gpu_protocol.h"
++struct avgl_allocation;
++struct window { UBYTE bar; ULONG offset, length; BOOL found; };
++struct avgl_device;
++struct avgl_manager {
++    struct SignalSemaphore mutex;
++    struct avgl_device *device;
++    struct Library *utility_base;
++    ULONG references;
++    BOOL initialized;
++};
++/* Only this logical record belongs to a winsys. All physical ownership,
++ * including quarantined allocations, remains in the root manager. */
++struct avgl_transport {
++    struct avgl_manager *manager;
++    struct avgl_device *device;
++    struct Library *utility_base;
++    UBYTE caps[8192];
++    ULONG caps_size, context, resources_live;
++    BOOL context_created, failed;
++};
++void avgl_manager_init(struct avgl_manager *m, struct Library *utility_base);
++BOOL avgl_manager_can_expunge(struct avgl_manager *m);
++BOOL avgl_device_present(struct avgl_manager *m);
++BOOL avgl_healthy(struct avgl_transport *s);
++ULONG avgl_resource_id(struct avgl_transport *s);
++BOOL avgl_cleanup_command(struct avgl_transport *s, const void *input, ULONG bytes);
++
++
++
++BOOL avgl_open(struct avgl_transport *s, struct avgl_manager *manager);
++BOOL avgl_close(struct avgl_transport *s);
++BOOL avgl_command(struct avgl_transport *s, const void *input, ULONG bytes,
++    ULONG expected, ULONG minimum, ULONG *received, BOOL fenced);
++UQUAD avgl_dma_address(struct avgl_transport *s, APTR pointer);
++APTR avgl_alloc(struct avgl_transport *s, ULONG bytes);
++BOOL avgl_backing_begin(struct avgl_transport *s, APTR pointer, ULONG flags);
++void avgl_backing_end(struct avgl_transport *s, APTR pointer);
++void avgl_free(struct avgl_transport *s, APTR pointer);
++#endif
+diff --git a/workbench/hidds/virgl/virgl_virtio.h b/workbench/hidds/virgl/virgl_virtio.h
+new file mode 100644
+index 00000000..fcb40954
+--- /dev/null
++++ b/workbench/hidds/virgl/virgl_virtio.h
+@@ -0,0 +1,191 @@
++#ifndef AROS_VIRGL_VIRTIO_H
++#define AROS_VIRGL_VIRTIO_H
++
++/*
++    Copyright (C) 2026, The AROS Development Team. All rights reserved.
++
++    Desc: VirtIO 1.x PCI common register & virtqueue definitions
++*/
++
++#include <exec/types.h>
++
++/* PCI vendor ID for VirtIO devices (Red Hat / IBM range) */
++#define VIRTIO_PCI_VENDOR_ID            0x1AF4
++
++/* Modern (virtio 1.0+) device IDs are vendor 0x1AF4, device 0x1040..0x107F */
++#define VIRTIO_PCI_DEVICEID_MIN         0x1040
++#define VIRTIO_PCI_DEVICEID_MAX         0x107F
++#define VIRTIO_PCI_DEVICEID_BLK_MODERN  0x1042  /* virtio-blk modern */
++
++/* Legacy / transitional virtio-blk */
++#define VIRTIO_PCI_DEVICEID_BLK_LEGACY  0x1001
++
++#define VIRTIO_DEVICE_BLOCK             2
++
++/* PCI Configuration capabilities, see virtio 1.x spec, sec 4.1.4 */
++#define VIRTIO_PCI_CAP_VENDOR_CFG       0x09
++#define VIRTIO_PCI_CAP_COMMON_CFG       1
++#define VIRTIO_PCI_CAP_NOTIFY_CFG       2
++#define VIRTIO_PCI_CAP_ISR_CFG          3
++#define VIRTIO_PCI_CAP_DEVICE_CFG       4
++#define VIRTIO_PCI_CAP_PCI_CFG          5
++
++/* PCI capability layout */
++struct virtio_pci_cap {
++    UBYTE   cap_vndr;       /* generic PCI field: 0x09 */
++    UBYTE   cap_next;       /* generic PCI field: next ptr. */
++    UBYTE   cap_len;        /* length of this cap structure */
++    UBYTE   cfg_type;       /* identifies the structure */
++    UBYTE   bar;            /* which BAR contains the structure */
++    UBYTE   padding[3];
++    ULONG   offset;         /* offset within bar */
++    ULONG   length;         /* length within bar */
++};
++
++/* Notify capability extends virtio_pci_cap with a multiplier */
++struct virtio_pci_notify_cap {
++    struct virtio_pci_cap cap;
++    ULONG   notify_off_multiplier;
++};
++
++/* Common configuration register layout (modern virtio) */
++struct virtio_pci_common_cfg {
++    /* About the whole device */
++    ULONG   device_feature_select;  /* 0x00 RW */
++    ULONG   device_feature;         /* 0x04 RO */
++    ULONG   guest_feature_select;   /* 0x08 RW */
++    ULONG   guest_feature;          /* 0x0C RW */
++    UWORD   msix_config;            /* 0x10 RW */
++    UWORD   num_queues;             /* 0x12 RO */
++    UBYTE   device_status;          /* 0x14 RW */
++    UBYTE   config_generation;      /* 0x15 RO */
++
++    /* About a specific virtqueue */
++    UWORD   queue_select;           /* 0x16 RW */
++    UWORD   queue_size;             /* 0x18 RW power-of-2 */
++    UWORD   queue_msix_vector;      /* 0x1A RW */
++    UWORD   queue_enable;           /* 0x1C RW */
++    UWORD   queue_notify_off;       /* 0x1E RO */
++    UQUAD   queue_desc;             /* 0x20 RW */
++    UQUAD   queue_driver;           /* 0x28 RW (avail) */
++    UQUAD   queue_device;           /* 0x30 RW (used) */
++};
++
++/* Device status bits */
++#define VIRTIO_CONFIG_S_ACKNOWLEDGE     1
++#define VIRTIO_CONFIG_S_DRIVER          2
++#define VIRTIO_CONFIG_S_DRIVER_OK       4
++#define VIRTIO_CONFIG_S_FEATURES_OK     8
++#define VIRTIO_CONFIG_S_NEEDS_RESET     0x40
++#define VIRTIO_CONFIG_S_FAILED          0x80
++
++/* Reserved (transport-level) feature bits */
++#define VIRTIO_F_NOTIFY_ON_EMPTY        24
++#define VIRTIO_F_ANY_LAYOUT             27
++#define VIRTIO_F_RING_INDIRECT_DESC     28
++#define VIRTIO_F_RING_EVENT_IDX         29
++#define VIRTIO_F_VERSION_1              32
++#define VIRTIO_F_ACCESS_PLATFORM        33
++#define VIRTIO_F_RING_PACKED            34
++
++/* virtio-blk feature bits (subset) */
++#define VIRTIO_BLK_F_SIZE_MAX           1
++#define VIRTIO_BLK_F_SEG_MAX            2
++#define VIRTIO_BLK_F_GEOMETRY           4
++#define VIRTIO_BLK_F_RO                 5
++#define VIRTIO_BLK_F_BLK_SIZE           6
++#define VIRTIO_BLK_F_FLUSH              9
++#define VIRTIO_BLK_F_TOPOLOGY           10
++#define VIRTIO_BLK_F_CONFIG_WCE         11
++#define VIRTIO_BLK_F_DISCARD            13
++#define VIRTIO_BLK_F_WRITE_ZEROES       14
++
++/* Default sector size used by virtio-blk (independent of blk_size feature) */
++#define VIRTIO_BLK_SECTOR_SIZE          512
++
++/* virtio-blk command request header (sent on out part of descriptor chain) */
++struct virtio_blk_outhdr {
++    ULONG   type;
++    ULONG   ioprio;
++    UQUAD   sector;     /* 512-byte units */
++};
++
++/* virtio-blk request types */
++#define VIRTIO_BLK_T_IN                 0
++#define VIRTIO_BLK_T_OUT                1
++#define VIRTIO_BLK_T_FLUSH              4
++#define VIRTIO_BLK_T_GET_ID             8
++#define VIRTIO_BLK_T_DISCARD            11
++#define VIRTIO_BLK_T_WRITE_ZEROES       13
++
++/* virtio-blk status codes (one byte at end of descriptor chain) */
++#define VIRTIO_BLK_S_OK                 0
++#define VIRTIO_BLK_S_IOERR              1
++#define VIRTIO_BLK_S_UNSUPP             2
++
++/* virtio-blk device-config layout (read from device cfg BAR) */
++struct virtio_blk_config {
++    UQUAD   capacity;       /* in 512-byte sectors */
++    ULONG   size_max;
++    ULONG   seg_max;
++    struct {
++        UWORD cylinders;
++        UBYTE heads;
++        UBYTE sectors;
++    } geometry;
++    ULONG   blk_size;
++    /* topology (optional) */
++    UBYTE   physical_block_exp;
++    UBYTE   alignment_offset;
++    UWORD   min_io_size;
++    ULONG   opt_io_size;
++    UBYTE   wce;
++    UBYTE   unused0;
++    UWORD   num_queues;
++};
++
++/*
++ * Split virtqueue layout (virtio 1.x)
++ *
++ * Each virtqueue has three contiguous parts:
++ *   - descriptor table  (16 bytes per descriptor)
++ *   - available ring    (variable)
++ *   - used ring         (variable)
++ * They must be physically contiguous and aligned per spec.
++ */
++
++struct virtq_desc {
++    UQUAD   addr;       /* guest physical / DMA address */
++    ULONG   len;
++    UWORD   flags;
++    UWORD   next;
++};
++
++#define VIRTQ_DESC_F_NEXT       1   /* Marks a buffer as continuing */
++#define VIRTQ_DESC_F_WRITE      2   /* Marks a buffer as device-write-only */
++#define VIRTQ_DESC_F_INDIRECT   4
++
++struct virtq_avail {
++    UWORD   flags;
++    UWORD   idx;
++    UWORD   ring[];     /* queue_size entries */
++    /* UWORD used_event;  -- if VIRTIO_F_RING_EVENT_IDX */
++};
++
++#define VIRTQ_AVAIL_F_NO_INTERRUPT 1
++
++struct virtq_used_elem {
++    ULONG   id;         /* index of start of used descriptor chain */
++    ULONG   len;        /* total length of the descriptor chain written */
++};
++
++struct virtq_used {
++    UWORD                   flags;
++    UWORD                   idx;
++    struct virtq_used_elem  ring[];     /* queue_size entries */
++    /* UWORD avail_event;  -- if VIRTIO_F_RING_EVENT_IDX */
++};
++
++#define VIRTQ_USED_F_NO_NOTIFY  1
++
++#endif /* AROS_VIRGL_VIRTIO_H */
+\ No newline at end of file
+diff --git a/workbench/hidds/virgl/virgl_winsys_aros.c b/workbench/hidds/virgl/virgl_winsys_aros.c
+new file mode 100644
+index 00000000..f7634ef2
+--- /dev/null
++++ b/workbench/hidds/virgl/virgl_winsys_aros.c
+@@ -0,0 +1,306 @@
++/* Copyright (C) 2026, The AROS Development Team. All rights reserved.
++ * Synchronous Mesa 20.0 VirGL winsys for AROS on a secondary VirtIO-GPU.
++ * No DRM descriptor, native sync-fd, blob memory or external resource import.
++ */
++#include <exec/semaphores.h>
++#include <proto/exec.h>
++#include <aros/debug.h>
++
++
++#include <stdint.h>
++#include "pipe/p_state.h"
++#include "virgl_winsys_aros.h"
++#include "virgl_transport.h"
++#include "virgl_native.h"
++
++struct avgl_ws;
++struct virgl_hw_res {
++    struct virgl_hw_res *next;
++    struct avgl_ws *ws;
++    uint32_t id, size, refs, pending;
++    void *map;
++};
++struct pipe_fence_handle { unsigned refs; };
++struct avgl_cb {
++    struct virgl_cmd_buf base;
++    struct avgl_ws *ws;
++    struct virgl_hw_res **resources;
++    unsigned capacity, count, resource_capacity;
++};
++struct avgl_ws {
++    struct virgl_winsys base;
++    struct avgl_transport transport;
++    struct SignalSemaphore mutex;
++    struct virgl_hw_res *resources;
++    struct virgl_winsys **owner_slot;
++};
++static struct avgl_ws *ws_cast(struct virgl_winsys *ws) { return (struct avgl_ws *)ws; }
++static bool send_request(struct avgl_ws *ws, const void *req, ULONG size, bool fence)
++{
++    ULONG received;
++    return avgl_command(&ws->transport,req,size,GPU_OK_NODATA,sizeof(struct gpu_header),&received,fence);
++}
++/* Only confirmed host cleanup authorizes releasing backing. On failure
++ * the root registry retains it until the last client's safe physical reset. */
++static bool cleanup_resource(struct avgl_ws *ws,uint32_t id,bool attached,bool backed,bool created)
++{
++    struct render_resource req={.resource=id};bool ok=true;
++    if(attached){req.header.type=GPU_CTX_DETACH_RESOURCE;req.header.context=ws->transport.context;
++        ok=avgl_cleanup_command(&ws->transport,&req,sizeof(req)) && ok;}
++    req.header.context=0;
++    if(backed){req.header.type=GPU_DETACH_BACKING;
++        ok=avgl_cleanup_command(&ws->transport,&req,sizeof(req)) && ok;}
++    if(created){req.header.type=GPU_RESOURCE_UNREF;
++        ok=avgl_cleanup_command(&ws->transport,&req,sizeof(req)) && ok;}
++    if(!ok)bug("[virgl] resource %lu backing retained for safe reset\n",(unsigned long)id);
++    return ok;
++}
++static void resource_ref_raw(struct avgl_ws *ws,struct virgl_hw_res **dst,struct virgl_hw_res *src)
++{
++    struct virgl_hw_res *old=*dst;
++    if (old==src) return;
++    if (src) src->refs++;
++    *dst=src;
++    if (old && --old->refs==0) {
++        struct virgl_hw_res **link=&ws->resources;
++        if(cleanup_resource(ws,old->id,true,true,true))avgl_free(&ws->transport,old->map);
++        while (*link && *link!=old) link=&(*link)->next;
++        if (*link) *link=old->next;
++        FreeVec(old);
++    }
++}
++static void ws_resource_reference(struct virgl_winsys *vws,struct virgl_hw_res **dst,struct virgl_hw_res *src)
++{
++    struct avgl_ws *ws=ws_cast(vws);
++    ObtainSemaphore(&ws->mutex);resource_ref_raw(ws,dst,src);ReleaseSemaphore(&ws->mutex);
++}
++static struct virgl_hw_res *ws_resource_create(struct virgl_winsys *vws,
++    enum pipe_texture_target target,uint32_t format,uint32_t bind,
++    uint32_t width,uint32_t height,uint32_t depth,uint32_t array_size,uint32_t last_level,
++    uint32_t samples,uint32_t size)
++{
++    struct avgl_ws *ws=ws_cast(vws);
++    struct virgl_hw_res *res=NULL;
++    bool created=false,attached=false,backed=false;
++    struct render_create create={.header.type=GPU_RESOURCE_CREATE_3D,
++        .target=target,.format=pipe_to_virgl_format(format),.bind=bind,.width=width,.height=height,
++        .depth=depth,.array_size=array_size,.last_level=last_level,.samples=samples};
++    struct render_resource attach={.header.type=GPU_CTX_ATTACH_RESOURCE,.header.context=ws->transport.context};
++    struct render_backing backing={.header.type=GPU_ATTACH_BACKING,.count=1,.length=size};
++    ObtainSemaphore(&ws->mutex);
++    if (!avgl_healthy(&ws->transport) || !size) goto done;
++    res=avgl_native_alloc(sizeof(*res));
++    if (!res) goto done;
++    res->ws=ws;res->id=avgl_resource_id(&ws->transport);res->refs=1;res->size=size;
++    if(!res->id){FreeVec(res);res=NULL;goto done;}
++    res->map=avgl_alloc(&ws->transport,size);
++    if (!res->map) {FreeVec(res);res=NULL;goto done;}
++    create.resource=attach.resource=backing.resource=res->id;
++    backing.address=avgl_dma_address(&ws->transport,res->map);
++    if(!backing.address || backing.address==~(UQUAD)0)goto rollback;
++    if(!send_request(ws,&create,sizeof(create),true))goto rollback;
++    created=true;
++    if(!send_request(ws,&attach,sizeof(attach),true))goto rollback;
++    attached=true;
++    if(!send_request(ws,&backing,sizeof(backing),true))goto rollback;
++    backed=true;
++    res->next=ws->resources;ws->resources=res;
++    goto done;
++ rollback:
++    if(cleanup_resource(ws,res->id,attached,backed,created))avgl_free(&ws->transport,res->map);
++    FreeVec(res);res=NULL;
++ done:
++    ReleaseSemaphore(&ws->mutex);
++    return res;
++}
++static int ws_transfer(struct virgl_winsys *vws,struct virgl_hw_res *res,
++    const struct pipe_box *box,uint32_t stride,uint32_t layer_stride,
++    uint32_t offset,uint32_t level,bool upload)
++{
++    struct avgl_ws *ws=ws_cast(vws);
++    struct render_transfer req={.header.type=upload?GPU_TRANSFER_TO_HOST_3D:GPU_TRANSFER_FROM_HOST_3D,
++        .header.context=ws->transport.context,.resource=res->id,.x=box->x,.y=box->y,.z=box->z,
++        .width=box->width,.height=box->height,.depth=box->depth,
++        .offset=offset,.level=level,.stride=stride,.layer_stride=layer_stride};
++    ULONG flags=upload?DMA_ReadFromRAM:0;
++    bool ok=false;
++    ObtainSemaphore(&ws->mutex);
++    if (offset>=res->size || box->x<0 || box->y<0 || box->z<0 ||
++        box->width<=0 || box->height<=0 || box->depth<=0) goto done;
++    if (!avgl_backing_begin(&ws->transport,res->map,flags)) goto done;
++    ok=send_request(ws,&req,sizeof(req),true);
++    avgl_backing_end(&ws->transport,res->map);
++ done:
++    /* Mesa's transfer queue does not propagate this return value. Losing a
++     * transfer invalidates this client's stream, not the shared device. */
++    if(!ok)ws->transport.failed=TRUE;
++    ReleaseSemaphore(&ws->mutex);
++    return ok?0:-1;
++}
++static int ws_put(struct virgl_winsys *ws,struct virgl_hw_res *r,const struct pipe_box *b,
++    uint32_t stride,uint32_t layer,uint32_t off,uint32_t level)
++{ return ws_transfer(ws,r,b,stride,layer,off,level,true); }
++static int ws_get(struct virgl_winsys *ws,struct virgl_hw_res *r,const struct pipe_box *b,
++    uint32_t stride,uint32_t layer,uint32_t off,uint32_t level)
++{ return ws_transfer(ws,r,b,stride,layer,off,level,false); }
++static void *ws_map(struct virgl_winsys *ws,struct virgl_hw_res *res)
++{ return avgl_healthy(&ws_cast(ws)->transport)?res->map:NULL; }
++static void ws_wait(struct virgl_winsys *ws,struct virgl_hw_res *res)
++{ (void)ws;(void)res; /* Every submitted batch already waited for its GPU fence. */ }
++static boolean ws_busy(struct virgl_winsys *ws,struct virgl_hw_res *res)
++{ (void)ws;(void)res;return false; }
++static struct virgl_hw_res *ws_import(struct virgl_winsys *ws,struct winsys_handle *handle,
++    uint32_t *plane,uint32_t *stride,uint32_t *offset,uint64_t *modifier)
++{ (void)ws;(void)handle;(void)plane;(void)stride;(void)offset;(void)modifier;return NULL; }
++static boolean ws_export(struct virgl_winsys *ws,struct virgl_hw_res *res,uint32_t stride,struct winsys_handle *handle)
++{ (void)ws;(void)res;(void)stride;(void)handle;return false; }
++static void release_references(struct avgl_cb *cb)
++{
++    unsigned i;
++    for(i=0;i<cb->count;i++) {
++        cb->resources[i]->pending--;
++        resource_ref_raw(cb->ws,&cb->resources[i],NULL);
++    }
++    cb->count=0;
++}
++static struct virgl_cmd_buf *ws_cb_create(struct virgl_winsys *vws,uint32_t words)
++{
++    struct avgl_cb *cb;
++    if (!words || words>128*1024) return NULL;
++    cb=avgl_native_alloc(sizeof(*cb));if(!cb)return NULL;
++    cb->base.buf=avgl_native_alloc((size_t)words*sizeof(uint32_t));
++    if(!cb->base.buf){FreeVec(cb);return NULL;}
++    cb->capacity=words;cb->ws=ws_cast(vws);
++    return &cb->base;
++}
++static void ws_cb_destroy(struct virgl_cmd_buf *base)
++{
++    struct avgl_cb *cb=(struct avgl_cb*)base;
++    ObtainSemaphore(&cb->ws->mutex);release_references(cb);ReleaseSemaphore(&cb->ws->mutex);
++    FreeVec(cb->resources);FreeVec(cb->base.buf);FreeVec(cb);
++}
++static void ws_emit(struct virgl_winsys *vws,struct virgl_cmd_buf *base,
++    struct virgl_hw_res *res,boolean write)
++{
++    struct avgl_cb *cb=(struct avgl_cb*)base;
++    struct avgl_ws *ws=ws_cast(vws);unsigned i;
++    ObtainSemaphore(&ws->mutex);
++    if(write) {
++        if(base->cdw>=cb->capacity){ws->transport.failed=TRUE;goto done;}
++        base->buf[base->cdw++]=res?res->id:0;
++    }
++    if(!res)goto done;
++    for(i=0;i<cb->count;i++)if(cb->resources[i]==res)goto done;
++    if(cb->count==cb->resource_capacity) {
++        unsigned capacity=cb->resource_capacity?cb->resource_capacity*2:32;
++        struct virgl_hw_res **array=avgl_native_grow(cb->resources,(size_t)cb->resource_capacity*sizeof(*array),(size_t)capacity*sizeof(*array));
++        if(!array){ws->transport.failed=TRUE;goto done;}
++        cb->resources=array;cb->resource_capacity=capacity;
++    }
++    cb->resources[cb->count++]=res;res->refs++;res->pending++;
++ done:
++    ReleaseSemaphore(&ws->mutex);
++}
++static boolean ws_referenced(struct virgl_winsys *ws,struct virgl_cmd_buf *cb,struct virgl_hw_res *res)
++{ (void)ws;(void)cb;return res->pending!=0; }
++static struct pipe_fence_handle *new_fence(void)
++{
++    struct pipe_fence_handle *f=avgl_native_alloc(sizeof(*f));if(f)f->refs=1;return f;
++}
++static int ws_submit(struct virgl_winsys *vws,struct virgl_cmd_buf *base,struct pipe_fence_handle **fence)
++{
++    struct avgl_ws *ws=ws_cast(vws);struct avgl_cb *cb=(struct avgl_cb*)base;
++    struct submit_header {struct gpu_header header;ULONG size,padding;} *req=NULL;
++    bool ok;
++    ObtainSemaphore(&ws->mutex);
++    ok=avgl_healthy(&ws->transport);
++    if(fence)*fence=NULL;
++    if(base->cdw>cb->capacity)ok=false;
++    if(ok && fence){*fence=new_fence();if(!*fence)ok=false;}
++    if(ok && base->cdw) {
++        ULONG size=base->cdw*sizeof(uint32_t);
++        req=avgl_native_alloc(sizeof(*req)+size);
++        if(!req)ok=false;
++        else {
++            req->header.type=GPU_SUBMIT_3D;req->header.context=ws->transport.context;req->size=size;
++            CopyMem(base->buf,req+1,size);ok=send_request(ws,req,sizeof(*req)+size,true);
++        }
++    }
++    /* The pinned core ignores submit's return value and reuses its command
++     * buffer. Never acknowledge later work after discarding this batch. */
++    if(!ok)ws->transport.failed=TRUE;
++    if(!ok && fence){FreeVec(*fence);*fence=NULL;}
++    FreeVec(req);release_references(cb);base->cdw=0;
++    ReleaseSemaphore(&ws->mutex);
++    return ok?0:-1;
++}
++static int ws_caps(struct virgl_winsys *vws,struct virgl_drm_caps *caps)
++{
++    struct avgl_ws *ws=ws_cast(vws);size_t bytes=ws->transport.caps_size;
++    avgl_native_clear(ws->transport.utility_base,caps,sizeof(*caps));virgl_ws_fill_new_caps_defaults(caps);
++    if(bytes>sizeof(caps->caps.v1))bytes=sizeof(caps->caps.v1);
++    CopyMem(ws->transport.caps,&caps->caps.v1,bytes);
++    caps->caps.max_version=1;
++    return 0;
++}
++static struct pipe_fence_handle *ws_fence_create(struct virgl_winsys *ws,int fd)
++{ return fd<0 && avgl_healthy(&ws_cast(ws)->transport)?new_fence():NULL; }
++static bool ws_fence_wait(struct virgl_winsys *ws,struct pipe_fence_handle *f,uint64_t timeout)
++{ (void)f;(void)timeout;return avgl_healthy(&ws_cast(ws)->transport); }
++static void ws_fence_ref(struct virgl_winsys *ws,struct pipe_fence_handle **dst,struct pipe_fence_handle *src)
++{
++    struct pipe_fence_handle *old=*dst;
++    if(old==src)return;
++    ObtainSemaphore(&ws_cast(ws)->mutex);
++    if(src)src->refs++;*dst=src;
++    if(old && --old->refs==0)FreeVec(old);
++    ReleaseSemaphore(&ws_cast(ws)->mutex);
++}
++static int ws_fence_fd(struct virgl_winsys *ws,struct pipe_fence_handle *f)
++{ (void)ws;(void)f;return -1; }
++static void ws_fence_sync(struct virgl_winsys *ws,struct virgl_cmd_buf *cb,struct pipe_fence_handle *f)
++{ (void)ws;(void)cb;(void)f; }
++static void ws_front(struct virgl_winsys *ws,struct virgl_hw_res *res,
++    unsigned level,unsigned layer,void *handle,struct pipe_box *box)
++{ (void)ws;(void)res;(void)level;(void)layer;(void)handle;(void)box; /* HIDD presents readback. */ }
++void avgl_winsys_dispose(struct virgl_winsys *vws)
++{
++    struct avgl_ws *ws=ws_cast(vws);
++    if(!ws)return;
++    ObtainSemaphore(&ws->mutex);
++    while(ws->resources){
++        struct virgl_hw_res *r=ws->resources;ws->resources=r->next;
++        if(cleanup_resource(ws,r->id,true,true,true))avgl_free(&ws->transport,r->map);
++        FreeVec(r);
++    }
++    avgl_close(&ws->transport);
++    if(ws->owner_slot)*ws->owner_slot=NULL;
++    ReleaseSemaphore(&ws->mutex);FreeVec(ws);
++}
++struct virgl_winsys *avgl_winsys_create(struct virgl_winsys **owner_slot,
++    struct avgl_manager *manager)
++{
++    struct avgl_ws *ws=avgl_native_alloc(sizeof(*ws));
++    if(!ws)return NULL;
++    InitSemaphore(&ws->mutex);ws->owner_slot=owner_slot;
++    if(!avgl_open(&ws->transport,manager)){FreeVec(ws);return NULL;}
++    ws->base.destroy=avgl_winsys_dispose;
++    ws->base.transfer_put=ws_put;ws->base.transfer_get=ws_get;
++    ws->base.resource_create=ws_resource_create;ws->base.resource_reference=ws_resource_reference;
++    ws->base.resource_map=ws_map;ws->base.resource_wait=ws_wait;ws->base.resource_is_busy=ws_busy;
++    ws->base.resource_create_from_handle=ws_import;
++    ws->base.resource_get_handle=ws_export;
++    ws->base.cmd_buf_create=ws_cb_create;ws->base.cmd_buf_destroy=ws_cb_destroy;
++    ws->base.emit_res=ws_emit;ws->base.submit_cmd=ws_submit;ws->base.res_is_referenced=ws_referenced;
++    ws->base.get_caps=ws_caps;ws->base.cs_create_fence=ws_fence_create;
++    ws->base.fence_wait=ws_fence_wait;ws->base.fence_reference=ws_fence_ref;
++    ws->base.flush_frontbuffer=ws_front;ws->base.fence_server_sync=ws_fence_sync;
++    ws->base.fence_get_fd=ws_fence_fd;
++    return &ws->base;
++}
++bool avgl_read_resource(struct virgl_winsys *ws,struct virgl_hw_res *res,
++    unsigned width,unsigned height,unsigned stride)
++{
++    struct pipe_box box={.width=width,.height=height,.depth=1};
++    return ws_get(ws,res,&box,stride,stride*height,0,0)==0;
++}
+diff --git a/workbench/hidds/virgl/virgl_winsys_aros.h b/workbench/hidds/virgl/virgl_winsys_aros.h
+new file mode 100644
+index 00000000..df7a472c
+--- /dev/null
++++ b/workbench/hidds/virgl/virgl_winsys_aros.h
+@@ -0,0 +1,13 @@
++/* Copyright (C) 2026, The AROS Development Team. All rights reserved. */
++#ifndef AROS_VIRGL_WINSYS_H
++#define AROS_VIRGL_WINSYS_H
++#include <stdbool.h>
++#include "pipe/p_format.h"
++#include "virgl/virgl_winsys.h"
++struct avgl_manager;
++struct virgl_winsys *avgl_winsys_create(struct virgl_winsys **owner_slot,
++    struct avgl_manager *manager);
++void avgl_winsys_dispose(struct virgl_winsys *ws);
++bool avgl_read_resource(struct virgl_winsys *ws, struct virgl_hw_res *res,
++    unsigned width, unsigned height, unsigned stride);
++#endif
+diff --git a/workbench/libs/gallium/createpipe.c b/workbench/libs/gallium/createpipe.c
+index d611b30a..22cc4906 100644
+--- a/workbench/libs/gallium/createpipe.c
++++ b/workbench/libs/gallium/createpipe.c
+@@ -100,6 +100,23 @@
+     if (pubscreen)
+         UnlockPubScreen(NULL, pubscreen);
+ 
++    /*
++     * A VirGL renderer, when its module is installed and it finds its
++     * device (a VirtIO-GPU adapter with 3D support), is preferred over the
++     * software fallback. Its constructor fails when there is no such device.
++     */
++    if (!*driver)
++    {
++        if (!GB(GalliumBase)->virglmodule && !GB(GalliumBase)->virgltried)
++        {
++            GB(GalliumBase)->virgltried = TRUE;
++            GB(GalliumBase)->virglmodule = OpenLibrary("virgl.hidd", 1);
++            D(bug("[Gallium] %s: 'virgl.hidd' @ 0x%p\n", __PRETTY_FUNCTION__, GB(GalliumBase)->virglmodule));
++        }
++        if (GB(GalliumBase)->virglmodule)
++            *driver = OOP_NewObject(NULL, "hidd.gallium.virgl", galliumTags);
++    }
++
+     if (!*driver)
+     {
+         char tmpname[128];
+diff --git a/workbench/libs/gallium/gallium_init.c b/workbench/libs/gallium/gallium_init.c
+index 105ada33..be699722 100644
+--- a/workbench/libs/gallium/gallium_init.c
++++ b/workbench/libs/gallium/gallium_init.c
+@@ -30,6 +30,8 @@ static int Init(LIBBASETYPEPTR LIBBASE)
+     LIBBASE->basegallium = OOP_FindClass(CLID_Hidd_Gallium);
+     LIBBASE->fallback = (char *)softpipe_str;
+     LIBBASE->fallbackmodule = NULL;
++    LIBBASE->virglmodule = NULL;
++    LIBBASE->virgltried = FALSE;
+ 
+     /* cache method id's that we use ..  */
+     LIBBASE->galliumMId_UpdateRect = OOP_GetMethodID(IID_Hidd_BitMap, moHidd_BitMap_UpdateRect);
+@@ -52,6 +54,8 @@ static int Expunge(LIBBASETYPEPTR LIBBASE)
+ 
+     if (LIBBASE->fallbackmodule)
+         CloseLibrary(LIBBASE->fallbackmodule);
++    if (LIBBASE->virglmodule)
++        CloseLibrary(LIBBASE->virglmodule);
+ 
+     return TRUE;
+ }
+diff --git a/workbench/libs/gallium/gallium_intern.h b/workbench/libs/gallium/gallium_intern.h
+index 543b1d8a..2f9ddc1d 100644
+--- a/workbench/libs/gallium/gallium_intern.h
++++ b/workbench/libs/gallium/gallium_intern.h
+@@ -43,6 +43,8 @@ struct GalliumBase
+ 
+     char                        *fallback;
+     struct Library              *fallbackmodule;
++    struct Library              *virglmodule;
++    BOOL                        virgltried;
+ 
+     OOP_Class                   *basegallium;
+     OOP_AttrBase                gfxAttrBase;
+-- 
+2.54.0 (Apple Git-157)
+
