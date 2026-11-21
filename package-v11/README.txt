@@ -1,4 +1,4 @@
-VirGL for AROS x86_64 ABIv11, internal test package 0.2.0-test3
+VirGL for AROS x86_64 ABIv11, internal test package 0.2.0-test4
 ===============================================================
 
 Not a public release. For checking OpenGL through VirGL in an ABIv11 system
@@ -37,6 +37,9 @@ Files
 Libs/gallium.library            replaces the system file
 Devs/Drivers/virgl.hidd         new
 Tools/glcheck                   test program
+Tools/glstress                  loads textures, draws, can end without
+                                closing OpenGL
+Tools/StressLoop                script: glstress ten times, then a report
 Install, Rollback               AROS Shell scripts
 Host/run-qemu-linux.sh          QEMU command line for a Linux host
 
@@ -46,8 +49,8 @@ Installation
 ------------
 1. Copy this drawer to the AROS disk, open a Shell and CD into it.
 2. Execute Install
-   The replaced file is first copied to SYS:VirGL-rollback-0.2.0-test3.
-   Installing over 0.2.0-test1 or test2 is fine: Install takes over the
+   The replaced file is first copied to SYS:VirGL-rollback-0.2.0-test4.
+   Installing over 0.2.0-test1, test2 or test3 is fine: Install takes over the
    system files saved by the earlier package, so Rollback still brings
    back the original ones.
 3. Shut down and start QEMU with the second adapter.
@@ -65,9 +68,32 @@ ENV:VirGL-Status says which renderer the last OpenGL program got:
 "virgl", or "softpipe:" followed by the reason VirGL could not be used,
 for example "card has no 3D". glcheck prints it too. When VirGL cannot
 start, programs now get the software renderer instead of no OpenGL at
-all.
+all. While a program waits more than 3 seconds for the host it says
+"virgl: waiting for the host (command ..., 3 s)", and goes back to
+"virgl" when the host has answered.
+
+A program that crashes or quits without closing OpenGL used to leave its
+textures and buffers on the host until the guest was restarted. The
+driver now releases them within about a second, and when the next OpenGL
+program starts. ENV:VirGL-Released counts what was released this way
+(contexts, resources, kilobytes). To try it:
+
+    CD Tools
+    Execute StressLoop
+
+It runs a program ten times that ends without closing OpenGL, then
+prints VirGL-Released (expected: contexts=10), VirGL-Status and a glcheck
+result.
 
 Then start any OpenGL program.
+
+When reporting, please send the output of
+
+    GetEnv VirGL-Status
+    GetEnv VirGL-Released
+
+after the program you tried, and frames per second if the program shows
+them.
 
 Removal
 -------
@@ -84,6 +110,14 @@ Known limits
   for a 256x256 window: about 5 ms per frame (test1: about 100 ms).
 - One VirtIO-GPU adapter, and it must be the second card, not the one the
   desktop runs on.
+- Release after a program has ended covers what is on the host. The
+  memory Mesa itself allocated inside the guest for that program (a few
+  megabytes) stays until reboot.
+- A drawing command may take the host up to 120 seconds, any other command
+  30 seconds. If the host takes longer, that program keeps running without
+  a picture and VirGL-Status says "virgl: stopped, the host did not
+  answer"; other programs work again once the host has answered. A different
+  limit can be set for a test with SetEnv VirGL-Timeout <milliseconds>.
 
 Changes since 0.2.0-test1
 -------------------------
@@ -95,6 +129,14 @@ Changes since 0.2.0-test1
   host takes longer than a very short wait (test2). In our test (no KVM):
   about 5 ms per frame instead of 100, and 64 textures load in 0.2 s
   instead of 9.7 s.
+
+Changes in 0.2.0-test4
+----------------------
+- What a program leaves behind when it ends without closing OpenGL is
+  released on the host.
+- The driver waits much longer for a slow host (before: about 10 seconds,
+  then the card was unusable until reboot), says so in ENV:VirGL-Status,
+  and recovers when the host answers late.
 
 Source
 ------
