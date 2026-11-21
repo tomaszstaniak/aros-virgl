@@ -1,0 +1,21 @@
+.key DUMMY
+FailAt 30
+Echo "Ten programs that end without closing OpenGL, then what the driver released."
+Avail
+glstress 64 30 noclean
+glstress 64 30 noclean
+glstress 64 30 noclean
+glstress 64 30 noclean
+glstress 64 30 noclean
+glstress 64 30 noclean
+glstress 64 30 noclean
+glstress 64 30 noclean
+glstress 64 30 noclean
+glstress 64 30 noclean
+Wait 3
+Echo "VirGL-Released:"
+GetEnv VirGL-Released
+Echo "VirGL-Status:"
+GetEnv VirGL-Status
+glcheck virgl
+Avail

@@ -1,4 +1,4 @@
-VirGL for AROS mainline x86_64, internal test package 0.2.0-test1
+VirGL for AROS mainline x86_64, internal test package 0.2.0-test2
 =================================================================
 
 Not a public release. For checking how AROS behaves on a VirtIO-GPU adapter
@@ -37,6 +37,10 @@ Devs/Drivers/gallium.hidd       replaces the system file
 Devs/Drivers/virgl.hidd         new
 Devs/Drivers/virtiogfx.hidd     new
 Tools/virglglprobe              test program
+Tools/glcheck                   short test with time per frame
+Tools/glstress                  loads textures, draws, can end without
+                                closing OpenGL
+Tools/StressLoop                script: glstress ten times, then a report
 Install, Rollback               AROS Shell scripts
 grub-entry.txt                  the boot loader line
 Host/run-qemu-linux.sh          QEMU command line for a Linux host
@@ -45,9 +49,10 @@ Installation
 ------------
 1. Copy this drawer to the AROS disk, open a Shell and CD into it.
 2. Execute Install
-   The replaced files are first copied to SYS:VirGL-rollback-0.2.0-test1.
+   The replaced files are first copied to SYS:VirGL-rollback-0.2.0-test2.
    The originals stay there after Rollback, so the package can be installed
-   and removed repeatedly.
+   and removed repeatedly. Installing over 0.2.0-test1 is fine: Install
+   takes over the system files saved by test1.
 3. Add the line from grub-entry.txt to boot/grub/grub.cfg. The driver has
    to be loaded by the boot loader; it does not work from Devs/Monitors.
 4. Shut down, start QEMU with the VirtIO-GPU adapter, pick the entry with
@@ -62,8 +67,33 @@ triangle, texture, blend, depth and stencil tests. On a boot without the
 VirtIO-GPU adapter "Tools/virglglprobe softpipe" checks the software
 renderer the same way.
 
+ENV:VirGL-Status says "virgl" when a program got the VirGL renderer.
+While a program waits more than 3 seconds for the host it says "virgl:
+waiting for the host (more than 3 s)", and goes back to "virgl" when the
+host has answered.
+
+A program that crashes or quits without closing OpenGL used to leave its
+textures and buffers on the host until the guest was restarted. The
+driver now releases them within about a second. ENV:VirGL-Released counts
+what was released this way (contexts, resources, kilobytes). To try it:
+
+    CD Tools
+    Execute StressLoop
+
+It runs a program ten times that ends without closing OpenGL, then
+prints VirGL-Released (expected: contexts=10), VirGL-Status and a glcheck
+result.
+
 Then start any OpenGL program, for example LibreSprite with
 GUI_RENDERER=GPU.
+
+When reporting, please send the output of
+
+    GetEnv VirGL-Status
+    GetEnv VirGL-Released
+
+after the program you tried, and frames per second if the program shows
+them.
 
 Removal
 -------
@@ -81,10 +111,29 @@ Known limits
 - The mouse pointer is drawn by the guest.
 - One screen resolution, set on the QEMU command line (xres, yres).
 - The driver must be the only display adapter (-vga none).
+- Release after a program has ended covers what is on the host. The
+  memory Mesa itself allocated inside the guest for that program stays
+  until reboot.
+- A drawing command may take the host up to 120 seconds, other OpenGL
+  commands 30 seconds. If the host takes longer, that program keeps
+  running without a picture and VirGL-Status says "virgl: stopped, the
+  host did not answer"; programs started meanwhile use the software
+  renderer, and VirGL works again once the host has answered.
+
+Changes since 0.2.0-test1
+-------------------------
+- Much faster: commands are sent without a fence. QEMU answers a fenced
+  command only when it polls fences, every 10 ms, so every command cost
+  about 10 ms. In our test (no KVM): 4 to 9 ms per frame instead of 73 to
+  92, and 64 textures load in 0.06 s instead of 2.6 s.
+- What a program leaves behind when it ends without closing OpenGL is
+  released on the host.
+- The driver waits much longer for a slow host (before: one second), says
+  so in ENV:VirGL-Status, and recovers when the host answers late.
 
 Source
 ------
-github.com/tomaszstaniak/AROS, branch virgl-mainline (commit e398066e).
+github.com/tomaszstaniak/AROS, branch virgl-mainline (commit 84758362).
 Display driver base and gl.library drawable additions by John Knipper;
 VirGL client, Mesa glue and tests continue github.com/tomaszstaniak/aros-virgl.
 AROS parts are under the AROS Public License, Mesa under its own licences
