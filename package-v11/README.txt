@@ -1,4 +1,4 @@
-VirGL for AROS x86_64 ABIv11, internal test package 0.2.0-test4
+VirGL for AROS x86_64 ABIv11, internal test package 0.2.0-test5
 ===============================================================
 
 Not a public release. For checking OpenGL through VirGL in an ABIv11 system
@@ -49,8 +49,8 @@ Installation
 ------------
 1. Copy this drawer to the AROS disk, open a Shell and CD into it.
 2. Execute Install
-   The replaced file is first copied to SYS:VirGL-rollback-0.2.0-test4.
-   Installing over 0.2.0-test1, test2 or test3 is fine: Install takes over the
+   The replaced file is first copied to SYS:VirGL-rollback-0.2.0-test5.
+   Installing over 0.2.0-test1 to test4 is fine: Install takes over the
    system files saved by the earlier package, so Rollback still brings
    back the original ones.
 3. Shut down and start QEMU with the second adapter.
@@ -86,6 +86,12 @@ prints VirGL-Released (expected: contexts=10), VirGL-Status and a glcheck
 result.
 
 Then start any OpenGL program.
+
+For a slow program, the driver prints the time it spent per kind of work
+to the debug output when a program closes OpenGL (the serial log when the
+system boots with debug=serial on the GRUB line): lines that begin with
+[virgl-stats] (commands, submits, uploads, downloads, frame
+readback and copy). Please add them to a report about speed.
 
 When reporting, please send the output of
 
@@ -137,6 +143,13 @@ Changes in 0.2.0-test4
 - The driver waits much longer for a slow host (before: about 10 seconds,
   then the card was unusable until reboot), says so in ENV:VirGL-Status,
   and recovers when the host answers late.
+
+Changes in 0.2.0-test5
+----------------------
+- Time per kind of work on the debug output ([virgl-stats]), as in the
+  mainline package.
+- The mainline and ABIv11 packages now share the version number and
+  have the same features.
 
 Source
 ------

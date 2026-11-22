@@ -9,52 +9,60 @@ Assign VirGLPkg: REMOVE
 Quit 20
 EndIf
 If EXISTS SYS:VirGL-rollback-0.2.0-test1/INSTALLED
-If NOT EXISTS SYS:VirGL-rollback-0.2.0-test4
-MakeDir SYS:VirGL-rollback-0.2.0-test4
+If NOT EXISTS SYS:VirGL-rollback-0.2.0-test5
+MakeDir SYS:VirGL-rollback-0.2.0-test5
 EndIf
-Copy SYS:VirGL-rollback-0.2.0-test1/~(INSTALLED) SYS:VirGL-rollback-0.2.0-test4 CLONE QUIET
+Copy SYS:VirGL-rollback-0.2.0-test1/~(INSTALLED) SYS:VirGL-rollback-0.2.0-test5 CLONE QUIET
 Delete SYS:VirGL-rollback-0.2.0-test1/INSTALLED QUIET
 Echo "Replacing 0.2.0-test1; its saved system files are kept for Rollback."
 EndIf
 If EXISTS SYS:VirGL-rollback-0.2.0-test2/INSTALLED
-If NOT EXISTS SYS:VirGL-rollback-0.2.0-test4
-MakeDir SYS:VirGL-rollback-0.2.0-test4
+If NOT EXISTS SYS:VirGL-rollback-0.2.0-test5
+MakeDir SYS:VirGL-rollback-0.2.0-test5
 EndIf
-Copy SYS:VirGL-rollback-0.2.0-test2/~(INSTALLED) SYS:VirGL-rollback-0.2.0-test4 CLONE QUIET
+Copy SYS:VirGL-rollback-0.2.0-test2/~(INSTALLED) SYS:VirGL-rollback-0.2.0-test5 CLONE QUIET
 Delete SYS:VirGL-rollback-0.2.0-test2/INSTALLED QUIET
 Echo "Replacing 0.2.0-test2; its saved system files are kept for Rollback."
 EndIf
 If EXISTS SYS:VirGL-rollback-0.2.0-test3/INSTALLED
-If NOT EXISTS SYS:VirGL-rollback-0.2.0-test4
-MakeDir SYS:VirGL-rollback-0.2.0-test4
+If NOT EXISTS SYS:VirGL-rollback-0.2.0-test5
+MakeDir SYS:VirGL-rollback-0.2.0-test5
 EndIf
-Copy SYS:VirGL-rollback-0.2.0-test3/~(INSTALLED) SYS:VirGL-rollback-0.2.0-test4 CLONE QUIET
+Copy SYS:VirGL-rollback-0.2.0-test3/~(INSTALLED) SYS:VirGL-rollback-0.2.0-test5 CLONE QUIET
 Delete SYS:VirGL-rollback-0.2.0-test3/INSTALLED QUIET
 Echo "Replacing 0.2.0-test3; its saved system files are kept for Rollback."
 EndIf
 If EXISTS SYS:VirGL-rollback-0.2.0-test4/INSTALLED
+If NOT EXISTS SYS:VirGL-rollback-0.2.0-test5
+MakeDir SYS:VirGL-rollback-0.2.0-test5
+EndIf
+Copy SYS:VirGL-rollback-0.2.0-test4/~(INSTALLED) SYS:VirGL-rollback-0.2.0-test5 CLONE QUIET
+Delete SYS:VirGL-rollback-0.2.0-test4/INSTALLED QUIET
+Echo "Replacing 0.2.0-test4; its saved system files are kept for Rollback."
+EndIf
+If EXISTS SYS:VirGL-rollback-0.2.0-test5/INSTALLED
 Echo "Already installed. Run Rollback first to install again."
 Assign VirGLPkg: REMOVE
 Quit 20
 EndIf
-If NOT EXISTS SYS:VirGL-rollback-0.2.0-test4/BACKUP_COMPLETE
-If NOT EXISTS SYS:VirGL-rollback-0.2.0-test4
-MakeDir SYS:VirGL-rollback-0.2.0-test4
+If NOT EXISTS SYS:VirGL-rollback-0.2.0-test5/BACKUP_COMPLETE
+If NOT EXISTS SYS:VirGL-rollback-0.2.0-test5
+MakeDir SYS:VirGL-rollback-0.2.0-test5
 EndIf
 If EXISTS SYS:Libs/gallium.library
-Copy SYS:Libs/gallium.library SYS:VirGL-rollback-0.2.0-test4/gallium.library CLONE
+Copy SYS:Libs/gallium.library SYS:VirGL-rollback-0.2.0-test5/gallium.library CLONE
 Else
-Echo absent >SYS:VirGL-rollback-0.2.0-test4/gallium.library.absent
+Echo absent >SYS:VirGL-rollback-0.2.0-test5/gallium.library.absent
 EndIf
 If EXISTS SYS:Devs/Drivers/virgl.hidd
-Copy SYS:Devs/Drivers/virgl.hidd SYS:VirGL-rollback-0.2.0-test4/virgl.hidd CLONE
+Copy SYS:Devs/Drivers/virgl.hidd SYS:VirGL-rollback-0.2.0-test5/virgl.hidd CLONE
 Else
-Echo absent >SYS:VirGL-rollback-0.2.0-test4/virgl.hidd.absent
+Echo absent >SYS:VirGL-rollback-0.2.0-test5/virgl.hidd.absent
 EndIf
-Echo complete >SYS:VirGL-rollback-0.2.0-test4/BACKUP_COMPLETE
+Echo complete >SYS:VirGL-rollback-0.2.0-test5/BACKUP_COMPLETE
 EndIf
 Copy VirGLPkg:Libs/gallium.library SYS:Libs/gallium.library CLONE
 Copy VirGLPkg:Devs/Drivers/virgl.hidd SYS:Devs/Drivers/virgl.hidd CLONE
-Echo installed >SYS:VirGL-rollback-0.2.0-test4/INSTALLED
+Echo installed >SYS:VirGL-rollback-0.2.0-test5/INSTALLED
 Assign VirGLPkg: REMOVE
 Echo "Files installed. Cold reboot, then start QEMU with the second VirtIO-GPU adapter."

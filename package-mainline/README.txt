@@ -1,4 +1,4 @@
-VirGL for AROS mainline x86_64, internal test package 0.2.0-test2
+VirGL for AROS mainline x86_64, internal test package 0.2.0-test5
 =================================================================
 
 Not a public release. For checking how AROS behaves on a VirtIO-GPU adapter
@@ -49,10 +49,10 @@ Installation
 ------------
 1. Copy this drawer to the AROS disk, open a Shell and CD into it.
 2. Execute Install
-   The replaced files are first copied to SYS:VirGL-rollback-0.2.0-test2.
+   The replaced files are first copied to SYS:VirGL-rollback-0.2.0-test5.
    The originals stay there after Rollback, so the package can be installed
-   and removed repeatedly. Installing over 0.2.0-test1 is fine: Install
-   takes over the system files saved by test1.
+   and removed repeatedly. Installing over 0.2.0-test1 or test2 is fine:
+   Install takes over the system files saved by the earlier package.
 3. Add the line from grub-entry.txt to boot/grub/grub.cfg. The driver has
    to be loaded by the boot loader; it does not work from Devs/Monitors.
 4. Shut down, start QEMU with the VirtIO-GPU adapter, pick the entry with
@@ -67,7 +67,10 @@ triangle, texture, blend, depth and stencil tests. On a boot without the
 VirtIO-GPU adapter "Tools/virglglprobe softpipe" checks the software
 renderer the same way.
 
-ENV:VirGL-Status says "virgl" when a program got the VirGL renderer.
+ENV:VirGL-Status says which renderer the last OpenGL program got:
+"virgl", or "softpipe:" followed by the reason VirGL could not be used,
+for example "card has no 3D". glcheck prints it too. When VirGL cannot
+start, programs get the software renderer instead of no OpenGL at all.
 While a program waits more than 3 seconds for the host it says "virgl:
 waiting for the host (more than 3 s)", and goes back to "virgl" when the
 host has answered.
@@ -86,6 +89,12 @@ result.
 
 Then start any OpenGL program, for example LibreSprite with
 GUI_RENDERER=GPU.
+
+For a slow program, the driver prints the time it spent per kind of work
+to the debug output when a program closes OpenGL (the serial log when the
+system boots with debug=serial on the GRUB line): lines that begin with
+[virgl-stats] (commands, submits, uploads, downloads, frame
+readback and copy). Please add them to a report about speed.
 
 When reporting, please send the output of
 
@@ -118,7 +127,9 @@ Known limits
   commands 30 seconds. If the host takes longer, that program keeps
   running without a picture and VirGL-Status says "virgl: stopped, the
   host did not answer"; programs started meanwhile use the software
-  renderer, and VirGL works again once the host has answered.
+  renderer, and VirGL works again once the host has answered. A different
+  limit can be set for a test with SetEnv VirGL-Timeout <milliseconds>
+  (rounded up to whole seconds).
 
 Changes since 0.2.0-test1
 -------------------------
@@ -131,9 +142,19 @@ Changes since 0.2.0-test1
 - The driver waits much longer for a slow host (before: one second), says
   so in ENV:VirGL-Status, and recovers when the host answers late.
 
+Changes in 0.2.0-test5
+----------------------
+- Software renderer instead of no OpenGL when the card offers VirGL but
+  it cannot start (for example the host refuses a context), with the
+  reason in ENV:VirGL-Status. A card without 3D gives the reason too.
+- ENV:VirGL-Timeout sets the wait for the host, as in the ABIv11 package.
+- The mainline and ABIv11 packages now share the version number and
+  have the same features (ABIv11 test3 and test4 had no mainline
+  counterpart).
+
 Source
 ------
-github.com/tomaszstaniak/AROS, branch virgl-mainline (commit 84758362).
+github.com/tomaszstaniak/AROS, branch virgl-mainline (commit 93d12ba2).
 Display driver base and gl.library drawable additions by John Knipper;
 VirGL client, Mesa glue and tests continue github.com/tomaszstaniak/aros-virgl.
 AROS parts are under the AROS Public License, Mesa under its own licences

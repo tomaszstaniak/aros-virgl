@@ -1,0 +1,271 @@
+From 332ab954c1d80f1d9731ad8e948638a1251c7678 Mon Sep 17 00:00:00 2001
+From: tomaszstaniak <68373859+tomaszstaniak@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 00:49:11 +0100
+Subject: [PATCH] virgl.hidd: time spent per kind of work, printed as
+ [virgl-stats] on the debug output when a context ends
+
+The same report as the mainline driver: commands to the device (waiting
+included), submits, uploads, downloads, resource creation and the parts of
+presenting a frame (readback, WritePixelArray), with counts, total and
+average time and bytes. Uses the E-clock of the timer the transport opens.
+---
+ workbench/hidds/virgl/mmakefile.src        |  1 +
+ workbench/hidds/virgl/virgl_galliumclass.c |  6 ++
+ workbench/hidds/virgl/virgl_stats.c        | 67 ++++++++++++++++++++++
+ workbench/hidds/virgl/virgl_stats.h        | 21 +++++++
+ workbench/hidds/virgl/virgl_transport.c    | 12 +++-
+ workbench/hidds/virgl/virgl_winsys_aros.c  |  8 +++
+ 6 files changed, 114 insertions(+), 1 deletion(-)
+ create mode 100644 workbench/hidds/virgl/virgl_stats.c
+ create mode 100644 workbench/hidds/virgl/virgl_stats.h
+
+diff --git a/workbench/hidds/virgl/mmakefile.src b/workbench/hidds/virgl/mmakefile.src
+index ec1ff28d..0579203f 100644
+--- a/workbench/hidds/virgl/mmakefile.src
++++ b/workbench/hidds/virgl/mmakefile.src
+@@ -23,6 +23,7 @@ VIRGL_HIDD_SOURCES := \
+             virgl_galliumclass \
+             virgl_winsys_aros \
+             virgl_transport \
++            virgl_stats \
+             virgl_stubs
+ 
+ USER_INCLUDES := \
+diff --git a/workbench/hidds/virgl/virgl_galliumclass.c b/workbench/hidds/virgl/virgl_galliumclass.c
+index 03e9180a..188ac9b6 100644
+--- a/workbench/hidds/virgl/virgl_galliumclass.c
++++ b/workbench/hidds/virgl/virgl_galliumclass.c
+@@ -17,6 +17,7 @@
+ #include "virgl/virgl_public.h"
+ #include "virgl_winsys_aros.h"
+ #include "virgl_intern.h"
++#include "virgl_stats.h"
+ #define CyberGfxBase (SD(cl)->CyberGfxBase)
+ #define UtilityBase (SD(cl)->UtilityBase)
+ #undef HiddGalliumAttrBase
+@@ -148,12 +149,17 @@ VOID METHOD(HiddVirgl,Hidd_Gallium,DisplayResource)
+       case PIPE_FORMAT_B8G8R8A8_SRGB:case PIPE_FORMAT_B8G8R8X8_SRGB:format=RECTFMT_BGRA32;break;
+       default:bug("[virgl.hidd] unsupported presentation format %u\n",res->u.b.format);return;
+     }
++    UQUAD t0=avgl_stat_now(),t1;
+     if(!avgl_read_resource(d->winsys,res->hw_res,res->u.b.width0,res->u.b.height0,res->metadata.stride[0]))return;
++    avgl_stat_add(AVGL_ST_PRESENT_READ,t0,res->metadata.stride[0]*res->u.b.height0);
+     pixels=d->winsys->resource_map(d->winsys,res->hw_res);
+     if(!pixels)return;
+     rp=CreateRastPort();if(!rp)return;
+     rp->BitMap=msg->bitmap;
++    t1=avgl_stat_now();
+     WritePixelArray(pixels,msg->srcx,msg->srcy,
+         res->metadata.stride[0],rp,msg->dstx,msg->dsty,msg->width,msg->height,format);
++    avgl_stat_add(AVGL_ST_PRESENT_COPY,t1,msg->width*msg->height*4);
+     FreeRastPort(rp);
++    avgl_stat_add(AVGL_ST_PRESENT,t0,0);
+ }
+diff --git a/workbench/hidds/virgl/virgl_stats.c b/workbench/hidds/virgl/virgl_stats.c
+new file mode 100644
+index 00000000..497fe6ac
+--- /dev/null
++++ b/workbench/hidds/virgl/virgl_stats.c
+@@ -0,0 +1,67 @@
++/* Copyright (C) 2026, The AROS Development Team. All rights reserved. */
++#include <exec/semaphores.h>
++#include <devices/timer.h>
++#include <proto/exec.h>
++#include <proto/timer.h>
++#include <aros/debug.h>
++#include "virgl_stats.h"
++
++/* Opened by the transport (virgl_transport.c) when the device is opened. */
++extern struct Device *TimerBase;
++static struct SignalSemaphore lock;
++static BOOL ready;
++static ULONG frequency;
++static struct { UQUAD ticks, bytes; ULONG count; } stats[AVGL_ST_COUNT];
++static const char *const names[AVGL_ST_COUNT] = {
++    "command", "submit", "put", "get", "create", "present", "present-read", "present-copy"
++};
++
++static BOOL start(void)
++{
++    if (ready) return TRUE;
++    if (!TimerBase) return FALSE;
++    Forbid();
++    if (!ready) {
++        struct EClockVal v;
++        InitSemaphore(&lock);
++        frequency = ReadEClock(&v);
++        ready = frequency != 0;
++    }
++    Permit();
++    return ready;
++}
++UQUAD avgl_stat_now(void)
++{
++    struct EClockVal v;
++    if (!start()) return 0;
++    ReadEClock(&v);
++    return ((UQUAD)v.ev_hi << 32) | v.ev_lo;
++}
++void avgl_stat_add(enum avgl_stat which, UQUAD begin, ULONG bytes)
++{
++    UQUAD end;
++    if (!ready || !begin || which >= AVGL_ST_COUNT) return;
++    end = avgl_stat_now();
++    ObtainSemaphore(&lock);
++    stats[which].ticks += end - begin;
++    stats[which].bytes += bytes;
++    stats[which].count++;
++    ReleaseSemaphore(&lock);
++}
++void avgl_stat_report(const char *why)
++{
++    unsigned i;
++    if (!ready) return;
++    ObtainSemaphore(&lock);
++    bug("[virgl-stats] %s\n", why);
++    for (i = 0; i < AVGL_ST_COUNT; i++) {
++        if (!stats[i].count) continue;
++        bug("[virgl-stats] %-13s n=%lu ms=%lu avg_us=%lu kb=%lu\n", names[i],
++            (unsigned long)stats[i].count,
++            (unsigned long)(stats[i].ticks * 1000 / frequency),
++            (unsigned long)(stats[i].ticks * 1000000 / frequency / stats[i].count),
++            (unsigned long)(stats[i].bytes / 1024));
++        stats[i].ticks = stats[i].bytes = 0; stats[i].count = 0;
++    }
++    ReleaseSemaphore(&lock);
++}
+diff --git a/workbench/hidds/virgl/virgl_stats.h b/workbench/hidds/virgl/virgl_stats.h
+new file mode 100644
+index 00000000..e569c3cf
+--- /dev/null
++++ b/workbench/hidds/virgl/virgl_stats.h
+@@ -0,0 +1,21 @@
++/* Copyright (C) 2026, The AROS Development Team. All rights reserved.
++ * Time spent in the VirGL client, per kind of work, measured with the
++ * E-clock and printed to the debug output when a context ends. */
++#ifndef AROS_VIRGL_STATS_H
++#define AROS_VIRGL_STATS_H
++#include <exec/types.h>
++enum avgl_stat {
++    AVGL_ST_COMMAND,      /* every command sent to the device, waiting included */
++    AVGL_ST_SUBMIT,       /* command stream batches */
++    AVGL_ST_PUT,          /* uploads to the host (textures, buffers) */
++    AVGL_ST_GET,          /* downloads from the host (frame readback, glReadPixels) */
++    AVGL_ST_CREATE,       /* resource creation (three commands each) */
++    AVGL_ST_PRESENT,      /* DisplayResource as a whole */
++    AVGL_ST_PRESENT_READ, /* its readback part */
++    AVGL_ST_PRESENT_COPY, /* its WritePixelArray part */
++    AVGL_ST_COUNT
++};
++UQUAD avgl_stat_now(void);
++void avgl_stat_add(enum avgl_stat which, UQUAD start, ULONG bytes);
++void avgl_stat_report(const char *why);
++#endif
+diff --git a/workbench/hidds/virgl/virgl_transport.c b/workbench/hidds/virgl/virgl_transport.c
+index f37f5ded..9ef86226 100644
+--- a/workbench/hidds/virgl/virgl_transport.c
++++ b/workbench/hidds/virgl/virgl_transport.c
+@@ -14,6 +14,7 @@
+ 
+ #include <stddef.h>
+ #include "virgl_transport.h"
++#include "virgl_stats.h"
+ #include "virgl_native.h"
+ struct avgl_device {
+     struct Library *utility_base;
+@@ -348,7 +349,7 @@ static BOOL settle_stale(struct avgl_device *s, ULONG limit_ms)
+     return TRUE;
+ }
+ 
+-static BOOL raw_command(struct avgl_device *s, const void *input, ULONG req_len,
++static BOOL raw_command_untimed(struct avgl_device *s, const void *input, ULONG req_len,
+                     ULONG expected, ULONG minimum, ULONG *received, BOOL fenced)
+ {
+     struct gpu_header *req = (APTR)((UBYTE *)s->dma + REQUEST_OFFSET);
+@@ -434,6 +435,15 @@ static BOOL raw_command(struct avgl_device *s, const void *input, ULONG req_len,
+     }
+     return TRUE;
+ }
++/* Every command to the device, waiting included, for [virgl-stats]. */
++static BOOL raw_command(struct avgl_device *s, const void *input, ULONG req_len,
++                    ULONG expected, ULONG minimum, ULONG *received, BOOL fenced)
++{
++    UQUAD t = avgl_stat_now();
++    BOOL ok = raw_command_untimed(s, input, req_len, expected, minimum, received, fenced);
++    avgl_stat_add(AVGL_ST_COMMAND, t, req_len);
++    return ok;
++}
+ 
+ static BOOL query(struct avgl_device *s, ULONG type, ULONG a, ULONG b,
+                   ULONG expected, ULONG minimum, ULONG *received)
+diff --git a/workbench/hidds/virgl/virgl_winsys_aros.c b/workbench/hidds/virgl/virgl_winsys_aros.c
+index e9fc52fd..f2dc5c79 100644
+--- a/workbench/hidds/virgl/virgl_winsys_aros.c
++++ b/workbench/hidds/virgl/virgl_winsys_aros.c
+@@ -18,6 +18,7 @@
+ #include "pipe/p_state.h"
+ #include "virgl_winsys_aros.h"
+ #include "virgl_transport.h"
++#include "virgl_stats.h"
+ #include "virgl_native.h"
+ #include "virgl_registry.h"
+ 
+@@ -135,6 +136,7 @@ static struct virgl_hw_res *ws_resource_create(struct virgl_winsys *vws,
+         .depth=depth,.array_size=array_size,.last_level=last_level,.samples=samples};
+     struct render_resource attach={.header.type=GPU_CTX_ATTACH_RESOURCE,.header.context=ws->transport.context};
+     struct render_backing backing={.header.type=GPU_ATTACH_BACKING,.count=1,.length=size};
++    UQUAD t0=avgl_stat_now();
+     ObtainSemaphore(&ws->mutex);
+     used_now(ws);
+     if (!size) goto done;
+@@ -169,6 +171,7 @@ static struct virgl_hw_res *ws_resource_create(struct virgl_winsys *vws,
+     FreeVec(res);res=NULL;
+  done:
+     ReleaseSemaphore(&ws->mutex);
++    avgl_stat_add(AVGL_ST_CREATE,t0,size);
+     return res;
+ }
+ static int ws_transfer(struct virgl_winsys *vws,struct virgl_hw_res *res,
+@@ -182,6 +185,7 @@ static int ws_transfer(struct virgl_winsys *vws,struct virgl_hw_res *res,
+         .offset=offset,.level=level,.stride=stride,.layer_stride=layer_stride};
+     ULONG flags=upload?DMA_ReadFromRAM:0;
+     bool ok=false;
++    UQUAD t0=avgl_stat_now();
+     ObtainSemaphore(&ws->mutex);
+     if (ws->released || res->gone || offset>=res->size || box->x<0 || box->y<0 || box->z<0 ||
+         box->width<=0 || box->height<=0 || box->depth<=0) goto done;
+@@ -193,6 +197,7 @@ static int ws_transfer(struct virgl_winsys *vws,struct virgl_hw_res *res,
+      * transfer invalidates this client's stream, not the shared device. */
+     if(!ok)ws->transport.failed=TRUE;
+     ReleaseSemaphore(&ws->mutex);
++    avgl_stat_add(upload?AVGL_ST_PUT:AVGL_ST_GET,t0,(ULONG)box->height*stride);
+     return ok?0:-1;
+ }
+ static int ws_put(struct virgl_winsys *ws,struct virgl_hw_res *r,const struct pipe_box *b,
+@@ -270,6 +275,7 @@ static int ws_submit(struct virgl_winsys *vws,struct virgl_cmd_buf *base,struct
+     struct avgl_ws *ws=ws_cast(vws);struct avgl_cb *cb=(struct avgl_cb*)base;
+     struct submit_header {struct gpu_header header;ULONG size,padding;} *req=NULL;
+     bool ok;
++    UQUAD t0=avgl_stat_now();ULONG words=base->cdw;
+     ObtainSemaphore(&ws->mutex);
+     used_now(ws);
+     ok=avgl_healthy(&ws->transport);
+@@ -291,6 +297,7 @@ static int ws_submit(struct virgl_winsys *vws,struct virgl_cmd_buf *base,struct
+     if(!ok && fence){FreeVec(*fence);*fence=NULL;}
+     FreeVec(req);release_references(cb);base->cdw=0;
+     ReleaseSemaphore(&ws->mutex);
++    avgl_stat_add(AVGL_ST_SUBMIT,t0,words*4);
+     return ok?0:-1;
+ }
+ static int ws_caps(struct virgl_winsys *vws,struct virgl_drm_caps *caps)
+@@ -462,6 +469,7 @@ void avgl_winsys_dispose(struct virgl_winsys *vws)
+ {
+     struct avgl_ws *ws=ws_cast(vws);
+     if(!ws)return;
++    avgl_stat_report("context ends");
+     /* Leave the registry first: release_ended holds its lock while it works
+      * on a winsys, so after this nothing else touches this one. */
+     ObtainSemaphore(&ws->registry->lock);
+-- 
+2.54.0 (Apple Git-157)
+
