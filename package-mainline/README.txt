@@ -1,4 +1,4 @@
-VirGL for AROS mainline x86_64, internal test package 0.2.0-test5
+VirGL for AROS mainline x86_64, internal test package 0.2.0-test6
 =================================================================
 
 Not a public release. For checking how AROS behaves on a VirtIO-GPU adapter
@@ -14,9 +14,11 @@ What it does
 
 Requirements
 ------------
-Guest: AROS mainline x86_64 (ABIv1) close to master of 2026-11-19 (commit
-b6dcaeea). Tested on a nightly system of 2026-11-13. Three system libraries
-are replaced, so a much older or newer system may not match.
+Guest: AROS mainline x86_64 (ABIv1), a nightly of 2026-11-24 or later. Built
+on master 21200a1a (the source of nightly 2026-11-24) and tested on that
+nightly. It does not work on an older system: the Task structure changed on
+that day, and 0.2.0-test5 is the package for systems before it. Three system
+libraries are replaced, so a much newer system may not match.
 
 Host: QEMU with virglrenderer and an OpenGL display (gtk,gl=on or
 sdl,gl=on), a working host OpenGL driver, KVM. The guest needs exactly this
@@ -49,7 +51,7 @@ Installation
 ------------
 1. Copy this drawer to the AROS disk, open a Shell and CD into it.
 2. Execute Install
-   The replaced files are first copied to SYS:VirGL-rollback-0.2.0-test5.
+   The replaced files are first copied to SYS:VirGL-rollback-0.2.0-test6.
    The originals stay there after Rollback, so the package can be installed
    and removed repeatedly. Installing over 0.2.0-test1 or test2 is fine:
    Install takes over the system files saved by the earlier package.
@@ -141,6 +143,10 @@ Changes since 0.2.0-test1
   released on the host.
 - The driver waits much longer for a slow host (before: one second), says
   so in ENV:VirGL-Status, and recovers when the host answers late.
+
+Changes in 0.2.0-test6
+----------------------
+The same features as 0.2.0-test5, built for nightlies from 2026-11-24.
 
 Changes in 0.2.0-test5
 ----------------------

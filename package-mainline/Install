@@ -9,61 +9,61 @@ Assign VirGLPkg: REMOVE
 Quit 20
 EndIf
 If EXISTS SYS:VirGL-rollback-0.2.0-test1/INSTALLED
-If NOT EXISTS SYS:VirGL-rollback-0.2.0-test5
-MakeDir SYS:VirGL-rollback-0.2.0-test5
+If NOT EXISTS SYS:VirGL-rollback-0.2.0-test6
+MakeDir SYS:VirGL-rollback-0.2.0-test6
 EndIf
-Copy SYS:VirGL-rollback-0.2.0-test1/~(INSTALLED) SYS:VirGL-rollback-0.2.0-test5 CLONE QUIET
+Copy SYS:VirGL-rollback-0.2.0-test1/~(INSTALLED) SYS:VirGL-rollback-0.2.0-test6 CLONE QUIET
 Delete SYS:VirGL-rollback-0.2.0-test1/INSTALLED QUIET
 Echo "Replacing 0.2.0-test1; its saved system files are kept for Rollback."
 EndIf
 If EXISTS SYS:VirGL-rollback-0.2.0-test2/INSTALLED
-If NOT EXISTS SYS:VirGL-rollback-0.2.0-test5
-MakeDir SYS:VirGL-rollback-0.2.0-test5
+If NOT EXISTS SYS:VirGL-rollback-0.2.0-test6
+MakeDir SYS:VirGL-rollback-0.2.0-test6
 EndIf
-Copy SYS:VirGL-rollback-0.2.0-test2/~(INSTALLED) SYS:VirGL-rollback-0.2.0-test5 CLONE QUIET
+Copy SYS:VirGL-rollback-0.2.0-test2/~(INSTALLED) SYS:VirGL-rollback-0.2.0-test6 CLONE QUIET
 Delete SYS:VirGL-rollback-0.2.0-test2/INSTALLED QUIET
 Echo "Replacing 0.2.0-test2; its saved system files are kept for Rollback."
 EndIf
-If EXISTS SYS:VirGL-rollback-0.2.0-test5/INSTALLED
+If EXISTS SYS:VirGL-rollback-0.2.0-test6/INSTALLED
 Echo "Already installed. Run Rollback first to install again."
 Assign VirGLPkg: REMOVE
 Quit 20
 EndIf
-If NOT EXISTS SYS:VirGL-rollback-0.2.0-test5/BACKUP_COMPLETE
-If NOT EXISTS SYS:VirGL-rollback-0.2.0-test5
-MakeDir SYS:VirGL-rollback-0.2.0-test5
+If NOT EXISTS SYS:VirGL-rollback-0.2.0-test6/BACKUP_COMPLETE
+If NOT EXISTS SYS:VirGL-rollback-0.2.0-test6
+MakeDir SYS:VirGL-rollback-0.2.0-test6
 EndIf
 If EXISTS SYS:Libs/gallium.library
-Copy SYS:Libs/gallium.library SYS:VirGL-rollback-0.2.0-test5/gallium.library CLONE
+Copy SYS:Libs/gallium.library SYS:VirGL-rollback-0.2.0-test6/gallium.library CLONE
 Else
-Echo absent >SYS:VirGL-rollback-0.2.0-test5/gallium.library.absent
+Echo absent >SYS:VirGL-rollback-0.2.0-test6/gallium.library.absent
 EndIf
 If EXISTS SYS:Libs/gl.library
-Copy SYS:Libs/gl.library SYS:VirGL-rollback-0.2.0-test5/gl.library CLONE
+Copy SYS:Libs/gl.library SYS:VirGL-rollback-0.2.0-test6/gl.library CLONE
 Else
-Echo absent >SYS:VirGL-rollback-0.2.0-test5/gl.library.absent
+Echo absent >SYS:VirGL-rollback-0.2.0-test6/gl.library.absent
 EndIf
 If EXISTS SYS:Libs/mesa3dgl26-2.library
-Copy SYS:Libs/mesa3dgl26-2.library SYS:VirGL-rollback-0.2.0-test5/mesa3dgl26-2.library CLONE
+Copy SYS:Libs/mesa3dgl26-2.library SYS:VirGL-rollback-0.2.0-test6/mesa3dgl26-2.library CLONE
 Else
-Echo absent >SYS:VirGL-rollback-0.2.0-test5/mesa3dgl26-2.library.absent
+Echo absent >SYS:VirGL-rollback-0.2.0-test6/mesa3dgl26-2.library.absent
 EndIf
 If EXISTS SYS:Devs/Drivers/gallium.hidd
-Copy SYS:Devs/Drivers/gallium.hidd SYS:VirGL-rollback-0.2.0-test5/gallium.hidd CLONE
+Copy SYS:Devs/Drivers/gallium.hidd SYS:VirGL-rollback-0.2.0-test6/gallium.hidd CLONE
 Else
-Echo absent >SYS:VirGL-rollback-0.2.0-test5/gallium.hidd.absent
+Echo absent >SYS:VirGL-rollback-0.2.0-test6/gallium.hidd.absent
 EndIf
 If EXISTS SYS:Devs/Drivers/virgl.hidd
-Copy SYS:Devs/Drivers/virgl.hidd SYS:VirGL-rollback-0.2.0-test5/virgl.hidd CLONE
+Copy SYS:Devs/Drivers/virgl.hidd SYS:VirGL-rollback-0.2.0-test6/virgl.hidd CLONE
 Else
-Echo absent >SYS:VirGL-rollback-0.2.0-test5/virgl.hidd.absent
+Echo absent >SYS:VirGL-rollback-0.2.0-test6/virgl.hidd.absent
 EndIf
 If EXISTS SYS:Devs/Drivers/virtiogfx.hidd
-Copy SYS:Devs/Drivers/virtiogfx.hidd SYS:VirGL-rollback-0.2.0-test5/virtiogfx.hidd CLONE
+Copy SYS:Devs/Drivers/virtiogfx.hidd SYS:VirGL-rollback-0.2.0-test6/virtiogfx.hidd CLONE
 Else
-Echo absent >SYS:VirGL-rollback-0.2.0-test5/virtiogfx.hidd.absent
+Echo absent >SYS:VirGL-rollback-0.2.0-test6/virtiogfx.hidd.absent
 EndIf
-Echo complete >SYS:VirGL-rollback-0.2.0-test5/BACKUP_COMPLETE
+Echo complete >SYS:VirGL-rollback-0.2.0-test6/BACKUP_COMPLETE
 EndIf
 Copy VirGLPkg:Libs/gallium.library SYS:Libs/gallium.library CLONE
 Copy VirGLPkg:Libs/gl.library SYS:Libs/gl.library CLONE
@@ -71,6 +71,6 @@ Copy VirGLPkg:Libs/mesa3dgl26-2.library SYS:Libs/mesa3dgl26-2.library CLONE
 Copy VirGLPkg:Devs/Drivers/gallium.hidd SYS:Devs/Drivers/gallium.hidd CLONE
 Copy VirGLPkg:Devs/Drivers/virgl.hidd SYS:Devs/Drivers/virgl.hidd CLONE
 Copy VirGLPkg:Devs/Drivers/virtiogfx.hidd SYS:Devs/Drivers/virtiogfx.hidd CLONE
-Echo installed >SYS:VirGL-rollback-0.2.0-test5/INSTALLED
+Echo installed >SYS:VirGL-rollback-0.2.0-test6/INSTALLED
 Assign VirGLPkg: REMOVE
 Echo "Files installed. Add the GRUB line from grub-entry.txt if it is not there yet, then cold reboot."
