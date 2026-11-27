@@ -1,9 +1,9 @@
-VirGL for AROS mainline x86_64, internal test package 0.2.0-test6
-=================================================================
+VirGL for AROS mainline x86_64, test package 0.2.0 revision 7
+=============================================================
 
-Not a public release. For checking how AROS behaves on a VirtIO-GPU adapter
-with VirGL inside a QEMU/KVM virtual machine. It does nothing on real
-graphics hardware.
+A test package, not a finished release. For checking how AROS behaves on a
+VirtIO-GPU adapter with VirGL inside a QEMU/KVM virtual machine. It does
+nothing on real graphics hardware.
 
 What it does
 ------------
@@ -51,9 +51,9 @@ Installation
 ------------
 1. Copy this drawer to the AROS disk, open a Shell and CD into it.
 2. Execute Install
-   The replaced files are first copied to SYS:VirGL-rollback-0.2.0-test6.
+   The replaced files are first copied to SYS:VirGL-rollback-0.2.0-r7.
    The originals stay there after Rollback, so the package can be installed
-   and removed repeatedly. Installing over 0.2.0-test1 or test2 is fine:
+   and removed repeatedly. Installing over 0.2.0-test1, test2 or test6 is fine:
    Install takes over the system files saved by the earlier package.
 3. Add the line from grub-entry.txt to boot/grub/grub.cfg. The driver has
    to be loaded by the boot loader; it does not work from Devs/Monitors.
@@ -114,6 +114,17 @@ restores the saved files and removes the two new drivers. Remove the
 virtiogfx.hidd line from grub.cfg as well: an entry that names a missing
 module does not boot.
 
+Known issue, please report
+--------------------------
+On nightly 2026-11-24, in our virtual machine without KVM, running
+Tools/StressLoop (ten programs that end without closing OpenGL) was
+followed by a Software Failure requester in two runs of two: once in the
+file system task, once in the Shell when the script had finished. The
+results of the script were complete and the disk had no errors. Programs
+that close OpenGL normally (glcheck, virglglprobe) did not show it. If you
+see a Software Failure after an OpenGL program, please send the text of
+the requester and what was started before it.
+
 Known limits
 ------------
 - Each frame of an OpenGL window is read back from the host and copied to
@@ -144,6 +155,12 @@ Changes since 0.2.0-test1
 - The driver waits much longer for a slow host (before: one second), says
   so in ENV:VirGL-Status, and recovers when the host answers late.
 
+Changes in 0.2.0 revision 7
+---------------------------
+The same files as 0.2.0-test6. Only the package name changed: builds are
+now counted as revisions (r7 follows test6), and Install takes over an
+installed test6.
+
 Changes in 0.2.0-test6
 ----------------------
 The same features as 0.2.0-test5, built for nightlies from 2026-11-24.
@@ -160,7 +177,7 @@ Changes in 0.2.0-test5
 
 Source
 ------
-github.com/tomaszstaniak/AROS, branch virgl-mainline (commit 93d12ba2).
+github.com/tomaszstaniak/AROS, branch virgl-mainline-20261124 (commit cb5ae70c).
 Display driver base and gl.library drawable additions by John Knipper;
 VirGL client, Mesa glue and tests continue github.com/tomaszstaniak/aros-virgl.
 AROS parts are under the AROS Public License, Mesa under its own licences

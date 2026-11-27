@@ -1,9 +1,9 @@
-VirGL for AROS x86_64 ABIv11, internal test package 0.2.0-test5
-===============================================================
+VirGL for AROS x86_64 ABIv11, test package 0.2.0 revision 7
+===========================================================
 
-Not a public release. For checking OpenGL through VirGL in an ABIv11 system
-that runs inside a QEMU/KVM virtual machine. It does nothing on real
-graphics hardware.
+A test package, not a finished release. For checking OpenGL through VirGL
+in an ABIv11 system that runs inside a QEMU/KVM virtual machine. It does
+nothing on real graphics hardware.
 
 What it does
 ------------
@@ -49,8 +49,8 @@ Installation
 ------------
 1. Copy this drawer to the AROS disk, open a Shell and CD into it.
 2. Execute Install
-   The replaced file is first copied to SYS:VirGL-rollback-0.2.0-test5.
-   Installing over 0.2.0-test1 to test4 is fine: Install takes over the
+   The replaced file is first copied to SYS:VirGL-rollback-0.2.0-r7.
+   Installing over 0.2.0-test1 to test5 is fine: Install takes over the
    system files saved by the earlier package, so Rollback still brings
    back the original ones.
 3. Shut down and start QEMU with the second adapter.
@@ -151,9 +151,15 @@ Changes in 0.2.0-test5
 - The mainline and ABIv11 packages now share the version number and
   have the same features.
 
+Changes in 0.2.0 revision 7
+---------------------------
+The same files as 0.2.0-test5. Only the package name changed: builds are
+now counted as revisions, one row of numbers for both targets (r7 follows
+the mainline test6), and Install takes over an installed test5.
+
 Source
 ------
 Patch against deadwood2/AROS in github.com/tomaszstaniak/aros-virgl,
-patches/aros-v11 (not pushed yet). Build targets: hidd-virgl,
+patches/aros-v11. Build targets: hidd-virgl,
 workbench-libs-gallium. AROS parts are under the AROS Public License; the
 driver core is Mesa 20.0.8 (MIT).

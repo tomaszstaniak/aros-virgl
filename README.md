@@ -4,6 +4,8 @@ Experimental OpenGL acceleration for AROS x86_64 ABIv1 under QEMU. The guest use
 
 [Download 0.1.0-exp1](https://github.com/tomaszstaniak/aros-virgl/releases/tag/v0.1.0-exp1) · [Build the guest libraries](docs/build-guest.md) · [Build and run QEMU](docs/build-host.md)
 
+Test packages 0.2.0 revision 7 for mainline x86_64 (nightlies from 2026-11-24) and for ABIv11 distributions: [v0.2.0-r7](https://github.com/tomaszstaniak/aros-virgl/releases/tag/v0.2.0-r7). They replace the 0.1.0 layout described below; each archive has its own README.
+
 ## Requirements
 
 - AROS x86_64 ABIv1, official nightly **2026-10-31**, with Core, Extras and Developer files installed. [ISO URL and checksums](package/guest-baseline.json).
